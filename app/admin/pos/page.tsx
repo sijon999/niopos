@@ -589,8 +589,9 @@ export default function POSPage() {
               This offer requires a minimum purchase of ৳{Number(selectedOffer.minimum_purchase).toFixed(0)}. Add more items to qualify.
             </div>
           )}
+          
           <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Tax (5%)</span>
+            <span className="text-muted-foreground">Tax (0%)</span>
             <span className="font-medium">৳{offerTax.toFixed(2)}</span>
           </div>
           <Separator />
