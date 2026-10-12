@@ -248,7 +248,7 @@ BEGIN
     IF v_offer_discount < 0 THEN v_offer_discount := 0; END IF;
   END IF;
 
-  v_tax := ROUND((v_subtotal - v_total_item_discounts - v_discount - v_offer_discount) * 0.05, 2);
+  v_tax := ROUND((v_subtotal - v_total_item_discounts - v_discount - v_offer_discount) * 0.00, 2);
   v_total := ROUND(v_subtotal - v_total_item_discounts - v_discount - v_offer_discount + v_tax, 2);
   v_paid := CASE WHEN p_payment_method = 'due' THEN GREATEST(0, COALESCE(p_paid_amount, 0)) ELSE v_total END;
   v_due := GREATEST(0, v_total - v_paid);
