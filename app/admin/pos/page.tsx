@@ -174,11 +174,11 @@ export default function POSPage() {
   const offerDiscount = selectedOffer ? calculateOfferDiscount(selectedOffer, Math.max(0, getSubtotal() - itemDiscounts - discount)) : 0;
   const offerTax = useMemo(() => {
     const afterDiscount = getSubtotal() - itemDiscounts - discount - offerDiscount;
-    return Math.round(Math.max(0, afterDiscount) * 0.05 * 100) / 100;
+    return Math.round(Math.max(0, afterDiscount) * 0.00 * 100) / 100;
   }, [getSubtotal, itemDiscounts, discount, offerDiscount]);
   const grandTotal = useMemo(() => {
     const afterDiscount = getSubtotal() - itemDiscounts - discount - offerDiscount;
-    const tax = Math.round(Math.max(0, afterDiscount) * 0.05 * 100) / 100;
+    const tax = Math.round(Math.max(0, afterDiscount) * 0.00 * 100) / 100;
     return Math.round((afterDiscount + tax) * 100) / 100;
   }, [getSubtotal, itemDiscounts, discount, offerDiscount]);
 
@@ -601,14 +601,14 @@ export default function POSPage() {
           </div>
 
           {/* Payment method selector */}
-          <div className="grid grid-cols-5 gap-1.5">
+          {/* <div className="grid grid-cols-5 gap-1.5">
             {paymentMethods.map((method) => (
               <button key={method.id} onClick={() => setPaymentMethod(method.id)} className={`flex flex-col items-center gap-1 p-2 rounded-lg border transition-all ${paymentMethod === method.id ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-muted'}`}>
                 <method.icon className="w-4 h-4" />
                 <span className="text-[10px]">{method.label}</span>
               </button>
             ))}
-          </div>
+          </div> */}
 
           <Button className="w-full bg-gradient-to-r from-slate-800 to-black hover:from-slate-700 hover:to-slate-900 shadow-lg shadow-slate-800/30" size="lg" disabled={cart.length === 0} onClick={() => setCheckoutOpen(true)}>
             <Receipt className="w-4 h-4 mr-2" /> Checkout · ৳{grandTotal.toFixed(2)} (F8)
