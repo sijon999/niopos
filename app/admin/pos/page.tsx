@@ -575,7 +575,7 @@ export default function POSPage() {
           )}
           <div className="flex items-center gap-2">
             <Percent className="w-4 h-4 text-muted-foreground" />
-            <Input id="discount-input" type="number" placeholder="Extra Discount (F6)" value={discount || ''} onChange={(e) => setDiscount(Number(e.target.value) || 0)} className="h-8 text-sm" />
+            <Input id="discount-input" type="number" placeholder="Extra Discount (F6)" value={discount || '0%'} onChange={(e) => setDiscount(Number(e.target.value) || 0)} className="h-8 text-sm" />
             <span className="text-sm text-muted-foreground w-12 text-right">-৳{discount.toFixed(2)}</span>
           </div>
           {selectedOffer && offerDiscount > 0 && (
