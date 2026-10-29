@@ -40,7 +40,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
-import { useAuthStore } from '@/store/auth-store';
+import { useAuth } from '@/components/providers';
 
 const fmt = (n: number) => `৳${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -60,7 +60,7 @@ export default function DashboardPage() {
   const [topProducts, setTopProducts] = useState<any[]>([]);
   const [recentSales, setRecentSales] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const { user, isAdmin } = useAuthStore();
+  const { user } = useAuth();
 
   useEffect(() => {
     async function loadDashboard() {
@@ -248,18 +248,16 @@ export default function DashboardPage() {
               <span className="text-amber-400 text-sm font-medium">StyleBazaar Fashion POS</span>
             </div>
             <h2 className="text-2xl font-bold font-heading text-white mb-1">
-              Welcome back, {user?.name || 'Admin'}!
+              Welcome back, {typeof user?.user_metadata?.full_name === 'string' ? user.user_metadata.full_name : user?.email || 'there'}!
             </h2>
             <p className="text-slate-300">
               Here&apos;s what&apos;s happening at your clothing store today.
             </p>
           </div>
           <div className="flex gap-3">
-            {isAdmin && (
-              <Button variant="secondary" className="bg-white/10 text-white hover:bg-white/20 border-0">
-                View Reports
-              </Button>
-            )}
+            <Button variant="secondary" className="bg-white/10 text-white hover:bg-white/20 border-0">
+              View Reports
+            </Button>
             <Button className="bg-amber-500 text-slate-900 hover:bg-amber-400">
               New Sale
             </Button>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
@@ -9,32 +9,75 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { useAuthStore } from '@/store/auth-store';
+import { supabase } from '@/lib/supabase';
 
 export default function RegisterPage() {
   const router = useRouter();
-  const login = useAuthStore((s) => s.login);
   const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [storeName, setStoreName] = useState('');
+  const [storePhone, setStorePhone] = useState('');
+  const [storeAddress, setStoreAddress] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [employeeInviteToken, setEmployeeInviteToken] = useState<string | null>(null);
+  const [inviteChecked, setInviteChecked] = useState(false);
+
+  useEffect(() => {
+    setEmployeeInviteToken(new URLSearchParams(window.location.search).get('invite'));
+    setInviteChecked(true);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!inviteChecked) return;
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      const isAdminEmail = email.includes('admin');
-      const role = isAdminEmail ? 'administrator' : 'user';
-      login({ name, email, role });
-      toast.success('Account created successfully!');
-      if (isAdminEmail) {
-        router.push('/admin/dashboard');
-      } else {
-        router.push('/shop');
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: new URL('/auth/callback', window.location.origin).toString(),
+          data: {
+            full_name: name,
+            phone,
+            ...(employeeInviteToken
+              ? { employee_invite_token: employeeInviteToken }
+              : {
+                store_name: storeName,
+                store_phone: storePhone,
+                store_address: storeAddress,
+              }),
+          },
+        },
+      });
+      if (error) {
+        toast.error(error.message);
+        return;
       }
-    }, 800);
+
+      if (data.session) {
+        if (employeeInviteToken) {
+          toast.success('Employee account created.');
+          router.push('/admin/pos');
+        } else {
+          toast.success('Account created. Your store is awaiting approval.');
+          router.push('/pending-approval');
+        }
+      } else {
+        toast.info(
+          employeeInviteToken
+            ? 'Check your email to confirm your employee account.'
+            : 'Check your email to confirm your account. Your store will be reviewed after confirmation.'
+        );
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to create your account.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -76,8 +119,12 @@ export default function RegisterPage() {
           </div>
 
           <div className="space-y-2 mb-8">
-            <h2 className="text-3xl font-bold font-heading">Create your account</h2>
-            <p className="text-muted-foreground">Join StyleBazaar and start managing your store</p>
+            <h2 className="text-3xl font-bold font-heading">
+              {employeeInviteToken ? 'Join your store team' : 'Create your account'}
+            </h2>
+            <p className="text-muted-foreground">
+              {employeeInviteToken ? 'Create an account to accept your employee invitation' : 'Join StyleBazaar and start managing your store'}
+            </p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -88,6 +135,26 @@ export default function RegisterPage() {
                 <Input id="name" placeholder="John Smith" value={name} onChange={(e) => setName(e.target.value)} className="pl-10" required />
               </div>
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="phone">Phone Number</Label>
+              <Input id="phone" type="tel" placeholder="Phone number" value={phone} onChange={(e) => setPhone(e.target.value)} required />
+            </div>
+            {!employeeInviteToken && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="storeName">Store Name</Label>
+                  <Input id="storeName" placeholder="Your store name" value={storeName} onChange={(e) => setStoreName(e.target.value)} required />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="storePhone">Store Phone (optional)</Label>
+                  <Input id="storePhone" type="tel" placeholder="Store phone number" value={storePhone} onChange={(e) => setStorePhone(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="storeAddress">Store Address (optional)</Label>
+                  <Input id="storeAddress" placeholder="Store address" value={storeAddress} onChange={(e) => setStoreAddress(e.target.value)} />
+                </div>
+              </>
+            )}
             <div className="space-y-2">
               <Label htmlFor="email">Email Address</Label>
               <div className="relative">
@@ -111,7 +178,7 @@ export default function RegisterPage() {
                 I agree to the <span className="text-primary hover:underline cursor-pointer">Terms of Service</span> and <span className="text-primary hover:underline cursor-pointer">Privacy Policy</span>
               </Label>
             </div>
-            <Button type="submit" className="w-full bg-gradient-to-r from-slate-800 to-black hover:from-slate-700 hover:to-slate-900 shadow-lg shadow-slate-800/30" disabled={loading}>
+            <Button type="submit" className="w-full bg-gradient-to-r from-slate-800 to-black hover:from-slate-700 hover:to-slate-900 shadow-lg shadow-slate-800/30" disabled={loading || !inviteChecked}>
               {loading ? 'Creating account...' : 'Create Account'}
               {!loading && <ArrowRight className="w-4 h-4 ml-2" />}
             </Button>

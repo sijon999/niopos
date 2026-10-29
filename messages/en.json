@@ -53,6 +53,8 @@
   },
   "navigation": {
     "dashboard": "Dashboard",
+    "userApprovals": "User Approvals",
+    "stores": "Stores",
     "pos": "POS System",
     "products": "Products",
     "inventory": "Inventory",

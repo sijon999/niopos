@@ -17,6 +17,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import type { Employee } from '@/types';
 import { toast } from 'sonner';
+import EmployeeAccessPanel from './employee-access-panel';
 
 const roleColors: Record<string, string> = {
   super_admin: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400',
@@ -63,6 +64,7 @@ export default function EmployeesPage() {
 
   return (
     <div className="space-y-6">
+      <EmployeeAccessPanel />
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h2 className="text-2xl font-bold font-heading">Employees</h2>

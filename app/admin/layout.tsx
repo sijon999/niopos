@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -38,9 +38,39 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useTheme } from 'next-themes';
-import { useAuthStore } from '@/store/auth-store';
+import { useAuth } from '@/components/providers';
+import { supabase } from '@/lib/supabase';
 import { useTranslation } from '@/hooks/use-translation';
 import type { Locale } from '@/store/i18n-store';
+import { toast } from 'sonner';
+
+const routePermission = (pathname: string): string | null => {
+  const routes: [string, string][] = [
+    ['/admin/pos', 'pos'],
+    ['/admin/products', 'products'],
+    ['/admin/categories', 'products'],
+    ['/admin/brands', 'products'],
+    ['/admin/discount-offers', 'products'],
+    ['/admin/inventory', 'inventory'],
+    ['/admin/stock-reconciliation', 'inventory'],
+    ['/admin/barcode', 'inventory'],
+    ['/admin/units', 'inventory'],
+    ['/admin/purchases', 'purchases'],
+    ['/admin/suppliers', 'purchases'],
+    ['/admin/customers', 'customers'],
+    ['/admin/sales', 'sales'],
+    ['/admin/reports', 'reports'],
+    ['/admin/dashboard', 'reports'],
+    ['/admin/employees', 'employees'],
+    ['/admin/expenses', 'expenses'],
+    ['/admin/settings', 'settings'],
+  ];
+  return routes.find(([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`))?.[1] ?? null;
+};
+
+const superAdminOnlyPath = (pathname: string) =>
+  ['/admin/users', '/admin/stores']
+    .some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 
 export default function AdminLayout({
   children,
@@ -54,45 +84,145 @@ export default function AdminLayout({
   const [langMenuOpen, setLangMenuOpen] = useState(false);
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
-  const { user, isAdmin, hydrate, logout } = useAuthStore();
+  const { user, profile, isLoading: isAuthLoading, profileError } = useAuth();
   const { t, locale, setLocale } = useTranslation();
+  const [permissions, setPermissions] = useState<string[] | null>(null);
+  const [permissionsError, setPermissionsError] = useState<string | null>(null);
 
   useEffect(() => {
     setMounted(true);
-    hydrate();
-  }, [hydrate]);
+  }, []);
 
-  const handleLogout = () => {
-    logout();
-    router.push('/login');
+  useEffect(() => {
+    let current = true;
+    if (isAuthLoading || !user || !profile || profile.status !== 'approved') {
+      setPermissions(null);
+      setPermissionsError(null);
+      return () => {
+        current = false;
+      };
+    }
+
+    if (profile.role === 'super_admin') {
+      setPermissions(['*']);
+      setPermissionsError(null);
+      return () => {
+        current = false;
+      };
+    }
+
+    setPermissions(null);
+    setPermissionsError(null);
+    void (async () => {
+      try {
+        const { data, error } = await supabase.rpc('get_my_permissions');
+        if (!current) return;
+        if (error) {
+          setPermissionsError(error.message);
+          setPermissions([]);
+        } else {
+          setPermissions(Array.isArray(data) ? data as string[] : []);
+        }
+      } catch (error) {
+        if (!current) return;
+        setPermissionsError(error instanceof Error ? error.message : 'Permission verification failed.');
+        setPermissions([]);
+      }
+    })();
+    return () => {
+      current = false;
+    };
+  }, [isAuthLoading, profile, user]);
+
+  const hasPermission = useCallback(
+    (permission: string) =>
+      permissions?.includes('*') === true || permissions?.includes(permission) === true,
+    [permissions]
+  );
+
+  useEffect(() => {
+    if (isAuthLoading) return;
+    if (!user) {
+      router.replace('/login');
+      return;
+    }
+    if (!profile || profileError) return;
+
+    if (profile.status === 'pending') {
+      router.replace('/pending-approval');
+    } else if (profile.status === 'rejected') {
+      router.replace('/account-rejected');
+    } else if (profile.status === 'suspended') {
+      router.replace('/account-suspended');
+    } else if (profile.role === 'super_admin' && !superAdminOnlyPath(pathname)) {
+      router.replace('/admin/users');
+    } else if (permissions !== null) {
+      if (superAdminOnlyPath(pathname) && profile.role !== 'super_admin') {
+        router.replace('/admin/pos');
+        return;
+      }
+
+      const requiredPermission = routePermission(pathname);
+      if (requiredPermission && !hasPermission(requiredPermission)) {
+        const fallback = hasPermission('pos')
+          ? '/admin/pos'
+          : hasPermission('reports')
+            ? '/admin/dashboard'
+            : null;
+        if (fallback) router.replace(fallback);
+      }
+    }
+  }, [hasPermission, isAuthLoading, pathname, permissions, profile, profileError, router, user]);
+
+  const handleLogout = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+      router.push('/login');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to sign out.');
+    }
   };
 
-  const navItems = [
-    { href: '/admin/dashboard', labelKey: 'navigation.dashboard', icon: LayoutDashboard, adminOnly: false },
-    { href: '/admin/pos', labelKey: 'navigation.pos', icon: ShoppingCart, adminOnly: false },
-    { href: '/admin/products', labelKey: 'navigation.products', icon: Package, adminOnly: false },
-    { href: '/admin/inventory', labelKey: 'navigation.inventory', icon: Boxes, adminOnly: false },
-    { href: '/admin/stock-reconciliation', labelKey: 'navigation.stockReconciliation', icon: ClipboardCheck, adminOnly: false },
-    { href: '/admin/barcode', labelKey: 'navigation.barcode', icon: BarcodeIcon, adminOnly: false, children: [
-      { href: '/admin/barcode/generate', labelKey: 'navigation.generateBarcode' },
-      { href: '/admin/barcode/scan', labelKey: 'navigation.scanBarcode' },
-      { href: '/admin/barcode/history', labelKey: 'navigation.barcodeHistory' },
-    ] },
-    { href: '/admin/categories', labelKey: 'navigation.categories', icon: Tags, adminOnly: true },
-    { href: '/admin/brands', labelKey: 'navigation.brands', icon: Store, adminOnly: true },
-    { href: '/admin/units', labelKey: 'navigation.units', icon: Ruler, adminOnly: true },
-    { href: '/admin/customers', labelKey: 'navigation.customers', icon: Users, adminOnly: false },
-    { href: '/admin/discount-offers', labelKey: 'navigation.discountOffers', icon: Gift, adminOnly: true },
-    { href: '/admin/suppliers', labelKey: 'navigation.suppliers', icon: Truck, adminOnly: true },
-    { href: '/admin/employees', labelKey: 'navigation.employees', icon: UserCog, adminOnly: true },
-    { href: '/admin/purchases', labelKey: 'navigation.purchases', icon: Receipt, adminOnly: true },
-    { href: '/admin/sales', labelKey: 'navigation.sales', icon: ShoppingBag, adminOnly: true },
-    { href: '/admin/expenses', labelKey: 'navigation.expenses', icon: CreditCard, adminOnly: true },
-    { href: '/admin/reports', labelKey: 'navigation.reports', icon: FileBarChart, adminOnly: true },
-    { href: '/admin/settings', labelKey: 'navigation.settings', icon: Settings, adminOnly: true },
-  ].filter((item) => !item.adminOnly || isAdmin);
+  const navItems = profile?.role === 'super_admin'
+    ? [
+      { href: '/admin/users', labelKey: 'navigation.userApprovals', icon: Users },
+      { href: '/admin/stores', labelKey: 'navigation.stores', icon: Store },
+    ]
+    : [
+        { href: '/admin/dashboard', labelKey: 'navigation.dashboard', icon: LayoutDashboard },
+        { href: '/admin/pos', labelKey: 'navigation.pos', icon: ShoppingCart },
+        { href: '/admin/products', labelKey: 'navigation.products', icon: Package },
+        { href: '/admin/inventory', labelKey: 'navigation.inventory', icon: Boxes },
+        { href: '/admin/stock-reconciliation', labelKey: 'navigation.stockReconciliation', icon: ClipboardCheck },
+        { href: '/admin/barcode', labelKey: 'navigation.barcode', icon: BarcodeIcon, children: [
+          { href: '/admin/barcode/generate', labelKey: 'navigation.generateBarcode' },
+          { href: '/admin/barcode/scan', labelKey: 'navigation.scanBarcode' },
+          { href: '/admin/barcode/history', labelKey: 'navigation.barcodeHistory' },
+        ] },
+        { href: '/admin/categories', labelKey: 'navigation.categories', icon: Tags },
+        { href: '/admin/brands', labelKey: 'navigation.brands', icon: Store },
+        { href: '/admin/units', labelKey: 'navigation.units', icon: Ruler },
+        { href: '/admin/customers', labelKey: 'navigation.customers', icon: Users },
+        { href: '/admin/discount-offers', labelKey: 'navigation.discountOffers', icon: Gift },
+        { href: '/admin/suppliers', labelKey: 'navigation.suppliers', icon: Truck },
+        { href: '/admin/employees', labelKey: 'navigation.employees', icon: UserCog },
+        { href: '/admin/purchases', labelKey: 'navigation.purchases', icon: Receipt },
+        { href: '/admin/sales', labelKey: 'navigation.sales', icon: ShoppingBag },
+        { href: '/admin/expenses', labelKey: 'navigation.expenses', icon: CreditCard },
+        { href: '/admin/reports', labelKey: 'navigation.reports', icon: FileBarChart },
+        { href: '/admin/settings', labelKey: 'navigation.settings', icon: Settings },
+      ];
 
-  const currentPage = navItems.find((item) => pathname === item.href || pathname.startsWith(item.href + '/'));
+  const visibleNavItems = navItems.filter((item) => {
+    if (superAdminOnlyPath(item.href)) return profile?.role === 'super_admin';
+    const permission = routePermission(item.href);
+    return !permission || hasPermission(permission);
+  });
+  const currentPage = visibleNavItems.find((item) => pathname === item.href || pathname.startsWith(item.href + '/'));
   const barcodeExpanded = pathname.startsWith('/admin/barcode');
   const [barcodeOpen, setBarcodeOpen] = useState(false);
   useEffect(() => { if (barcodeExpanded) setBarcodeOpen(true); }, [barcodeExpanded]);
@@ -101,6 +231,39 @@ export default function AdminLayout({
     setLocale(newLocale);
     setLangMenuOpen(false);
   };
+
+  if (isAuthLoading || !user || !profile || profileError || profile.status !== 'approved' ||
+    (profile.role === 'super_admin' && !superAdminOnlyPath(pathname)) ||
+    (profile.role !== 'super_admin' && permissions === null)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-muted/30" role="status">
+        <span className="text-sm text-muted-foreground">
+          {profileError
+            ? `Unable to verify your account: ${profileError}`
+            : permissionsError
+              ? `Unable to verify permissions: ${permissionsError}`
+            : isAuthLoading || !profile
+              ? 'Checking your account...'
+              : !user
+                ? 'Redirecting to sign in...'
+                : 'Redirecting to the appropriate account page...'}
+        </span>
+      </div>
+    );
+  }
+
+  if (
+    (superAdminOnlyPath(pathname) && profile.role !== 'super_admin') ||
+    (routePermission(pathname) !== null && !hasPermission(routePermission(pathname)!))
+  ) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-muted/30 p-6" role="alert">
+        <p className="text-sm text-muted-foreground">
+          {permissionsError || 'Your account does not have permission to access this section.'}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-muted/30">
@@ -129,7 +292,7 @@ export default function AdminLayout({
         </div>
 
         <nav className="p-3 space-y-1 overflow-y-auto h-[calc(100vh-4rem)] scrollbar-thin">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const isActive = pathname === item.href || (item.children ? pathname.startsWith(item.href + '/') : pathname.startsWith(item.href + '/'));
             if (item.children) {
               return (
@@ -216,7 +379,7 @@ export default function AdminLayout({
               </h1>
               {user && (
                 <Badge variant="secondary" className="hidden sm:flex bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 capitalize">
-                  {user.role}
+                  Signed in
                 </Badge>
               )}
             </div>
@@ -289,11 +452,13 @@ export default function AdminLayout({
                   className="flex items-center gap-2 p-1 pr-2 hover:bg-muted rounded-lg transition-colors"
                 >
                   <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-800 to-black flex items-center justify-center text-white text-sm font-bold">
-                    {user?.name?.charAt(0).toUpperCase() || 'A'}
+                    {user?.email?.charAt(0).toUpperCase() || 'A'}
                   </div>
                   <div className="hidden sm:block text-left">
-                    <div className="text-sm font-medium">{user?.name || 'Admin User'}</div>
-                    <div className="text-xs text-muted-foreground capitalize">{user?.role || 'administrator'}</div>
+                    <div className="text-sm font-medium">
+                      {typeof user?.user_metadata?.full_name === 'string' ? user.user_metadata.full_name : user?.email || 'Account'}
+                    </div>
+                    <div className="text-xs text-muted-foreground">{user?.email}</div>
                   </div>
                   <ChevronDown className="w-4 h-4 text-muted-foreground hidden sm:block" />
                 </button>
@@ -307,14 +472,13 @@ export default function AdminLayout({
                       className="absolute right-0 top-full mt-2 w-56 bg-card border border-border rounded-xl shadow-xl py-2 z-50"
                     >
                       <div className="px-3 py-2 border-b border-border">
-                        <div className="font-semibold text-sm">{user?.name || 'Admin User'}</div>
-                        <div className="text-xs text-muted-foreground">{user?.email || 'admin@stylebazaar.com'}</div>
-                        <Badge variant="secondary" className="mt-1 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 capitalize">
-                          {user?.role || 'administrator'}
-                        </Badge>
+                        <div className="font-semibold text-sm">
+                          {typeof user?.user_metadata?.full_name === 'string' ? user.user_metadata.full_name : user?.email || 'Account'}
+                        </div>
+                        <div className="text-xs text-muted-foreground">{user?.email}</div>
                       </div>
                       <div className="py-1">
-                        {isAdmin && (
+                        {user && (
                           <Link href="/admin/settings" className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted rounded-lg mx-1">
                             <Settings className="w-4 h-4" /> {t('navigation.settings')}
                           </Link>

@@ -26,7 +26,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { usePOSStore } from '@/store/pos-store';
-import { useAuthStore } from '@/store/auth-store';
+import { useAuth } from '@/components/providers';
 import { supabase } from '@/lib/supabase';
 import type { Product, Category } from '@/types';
 import { toast } from 'sonner';
@@ -45,11 +45,7 @@ export default function ShopPage() {
   const [countdown, setCountdown] = useState({ hours: 12, minutes: 0, seconds: 0 });
   const addToCart = usePOSStore((s) => s.addToCart);
   const cart = usePOSStore((s) => s.cart);
-  const { user, isAdmin, hydrate, logout } = useAuthStore();
-
-  useEffect(() => {
-    hydrate();
-  }, [hydrate]);
+  const { user, isLoading: isAuthLoading } = useAuth();
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -116,6 +112,15 @@ export default function ShopPage() {
     toast.success(`${product.name} added to cart`);
   };
 
+  const handleLogout = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) toast.error(error.message);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to sign out.');
+    }
+  };
+
   const pad = (n: number) => String(n).padStart(2, '0');
   const dealsCount = products.filter((p) => p.discount_price).length;
 
@@ -137,10 +142,12 @@ export default function ShopPage() {
             <div className="hidden md:flex items-center gap-8">
               <Link href="/" className="text-sm font-medium text-foreground/80 hover:text-primary transition-colors">Home</Link>
               <Link href="/shop" className="text-sm font-medium text-primary">Shop</Link>
-              {isAdmin && <Link href="/admin/dashboard" className="text-sm font-medium text-foreground/80 hover:text-primary transition-colors">Dashboard</Link>}
-              {isAdmin && <Link href="/admin/pos" className="text-sm font-medium text-foreground/80 hover:text-primary transition-colors">POS</Link>}
-              {user ? (
-                <button onClick={logout} className="text-sm font-medium text-rose-600 hover:text-rose-700 transition-colors">Logout</button>
+              {user && <Link href="/admin/dashboard" className="text-sm font-medium text-foreground/80 hover:text-primary transition-colors">Dashboard</Link>}
+              {user && <Link href="/admin/pos" className="text-sm font-medium text-foreground/80 hover:text-primary transition-colors">POS</Link>}
+              {isAuthLoading ? (
+                <span className="text-sm text-muted-foreground" role="status">Checking session...</span>
+              ) : user ? (
+                <button onClick={handleLogout} className="text-sm font-medium text-rose-600 hover:text-rose-700 transition-colors">Logout</button>
               ) : (
                 <Link href="/login" className="text-sm font-medium text-foreground/80 hover:text-primary transition-colors">Login</Link>
               )}
@@ -167,10 +174,12 @@ export default function ShopPage() {
             <div className="md:hidden py-4 border-t border-border/40 space-y-2">
               <Link href="/" className="block px-4 py-2 text-sm font-medium hover:bg-muted rounded-lg">Home</Link>
               <Link href="/shop" className="block px-4 py-2 text-sm font-medium hover:bg-muted rounded-lg">Shop</Link>
-              {isAdmin && <Link href="/admin/dashboard" className="block px-4 py-2 text-sm font-medium hover:bg-muted rounded-lg">Dashboard</Link>}
-              {isAdmin && <Link href="/admin/pos" className="block px-4 py-2 text-sm font-medium hover:bg-muted rounded-lg">POS</Link>}
-              {user ? (
-                <button onClick={logout} className="block w-full text-left px-4 py-2 text-sm font-medium text-rose-600 hover:bg-muted rounded-lg">Logout</button>
+              {user && <Link href="/admin/dashboard" className="block px-4 py-2 text-sm font-medium hover:bg-muted rounded-lg">Dashboard</Link>}
+              {user && <Link href="/admin/pos" className="block px-4 py-2 text-sm font-medium hover:bg-muted rounded-lg">POS</Link>}
+              {isAuthLoading ? (
+                <span className="block px-4 py-2 text-sm text-muted-foreground" role="status">Checking session...</span>
+              ) : user ? (
+                <button onClick={handleLogout} className="block w-full text-left px-4 py-2 text-sm font-medium text-rose-600 hover:bg-muted rounded-lg">Logout</button>
               ) : (
                 <Link href="/login" className="block px-4 py-2 text-sm font-medium hover:bg-muted rounded-lg">Login</Link>
               )}

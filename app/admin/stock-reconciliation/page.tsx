@@ -46,7 +46,7 @@ import {
 } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/lib/supabase';
-import { useAuthStore } from '@/store/auth-store';
+import { useAuth } from '@/components/providers';
 import { useTranslation } from '@/hooks/use-translation';
 import { toast } from 'sonner';
 import type { Product, StockReconciliation } from '@/types';
@@ -72,7 +72,7 @@ const REASON_OPTIONS = [
 
 export default function StockReconciliationPage() {
   const { t } = useTranslation();
-  const { user } = useAuthStore();
+  const { user } = useAuth();
 
   const [products, setProducts] = useState<ProductWithRecon[]>([]);
   const [loading, setLoading] = useState(true);
@@ -322,7 +322,7 @@ export default function StockReconciliationPage() {
         status,
         reason: reasonValue,
         reason_details: reason === 'other' ? reasonDetails : null,
-        checked_by: user?.name || user?.email || 'Unknown',
+        checked_by: (typeof user?.user_metadata?.full_name === 'string' && user.user_metadata.full_name) || user?.email || 'Unknown',
         checked_at: new Date().toISOString(),
       });
 
@@ -390,7 +390,7 @@ export default function StockReconciliationPage() {
           physical_quantity: physical,
           difference: diff,
           status,
-          checked_by: user?.name || user?.email || 'Unknown',
+          checked_by: (typeof user?.user_metadata?.full_name === 'string' && user.user_metadata.full_name) || user?.email || 'Unknown',
           checked_at: new Date().toISOString(),
         });
       }
@@ -479,7 +479,7 @@ export default function StockReconciliationPage() {
         difference: diff,
         reason: recon.reason,
         reason_details: recon.reason_details,
-        adjusted_by: user?.name || user?.email || 'Unknown',
+        adjusted_by: (typeof user?.user_metadata?.full_name === 'string' && user.user_metadata.full_name) || user?.email || 'Unknown',
       });
 
       // Mark reconciliation as adjusted
@@ -488,7 +488,7 @@ export default function StockReconciliationPage() {
         .update({
           adjustment_applied: true,
           adjustment_applied_at: new Date().toISOString(),
-          adjustment_applied_by: user?.name || user?.email || 'Unknown',
+          adjustment_applied_by: (typeof user?.user_metadata?.full_name === 'string' && user.user_metadata.full_name) || user?.email || 'Unknown',
         })
         .eq('id', recon.id);
 

@@ -53,6 +53,8 @@
   },
   "navigation": {
     "dashboard": "ড্যাশবোর্ড",
+    "userApprovals": "ব্যবহারকারী অনুমোদন",
+    "stores": "স্টোর",
     "pos": "পিওএস সিস্টেম",
     "products": "পণ্য",
     "inventory": "ইনভেন্টরি",

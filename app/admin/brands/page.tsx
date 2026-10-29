@@ -74,8 +74,14 @@ export default function BrandsPage() {
   const handleLogoUpload = async (file: File) => {
     if (!file) return;
     setUploading(true);
+    const { data: storeId, error: storeError } = await supabase.rpc('get_my_store_id');
+    if (storeError || !storeId) {
+      setUploading(false);
+      toast.error('দোকানের তথ্য পাওয়া যায়নি');
+      return;
+    }
     const ext = file.name.split('.').pop();
-    const fileName = `brand-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    const fileName = `${storeId}/brand-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
     const { error } = await supabase.storage.from('product-images').upload(fileName, file);
     setUploading(false);
     if (error) { toast.error('লোগো আপলোড ব্যর্থ'); return; }

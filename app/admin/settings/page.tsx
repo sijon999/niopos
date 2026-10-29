@@ -14,37 +14,75 @@ import { toast } from 'sonner';
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    let current = true;
+
     async function loadSettings() {
-      const { data } = await supabase.from('settings').select('*').limit(1).maybeSingle();
-      if (data) setSettings(data);
-      setLoading(false);
+      try {
+        const { data, error } = await supabase.from('settings').select('*').maybeSingle();
+        if (!current) return;
+        if (error) {
+          setSettingsError(error.message);
+        } else if (!data) {
+          setSettingsError('No settings are configured for this store yet.');
+        } else {
+          setSettings(data);
+        }
+      } catch (error) {
+        if (!current) return;
+        setSettingsError(error instanceof Error ? error.message : 'Unable to load store settings.');
+      } finally {
+        if (current) setLoading(false);
+      }
     }
-    loadSettings();
+
+    void loadSettings();
+    return () => {
+      current = false;
+    };
   }, []);
 
   const handleSave = async () => {
     if (!settings) return;
     setSaving(true);
-    const { error } = await supabase.from('settings').update({
-      store_name: settings.store_name,
-      store_email: settings.store_email,
-      store_phone: settings.store_phone,
-      store_address: settings.store_address,
-      currency: settings.currency,
-      currency_symbol: settings.currency_symbol,
-      tax_rate: settings.tax_rate,
-      receipt_footer: settings.receipt_footer,
-    }).eq('id', settings.id);
-    setSaving(false);
-    if (error) { toast.error('Failed to save settings'); return; }
-    toast.success('Settings saved successfully');
+    try {
+      const { error } = await supabase.from('settings').update({
+        store_name: settings.store_name,
+        store_email: settings.store_email,
+        store_phone: settings.store_phone,
+        store_address: settings.store_address,
+        currency: settings.currency,
+        currency_symbol: settings.currency_symbol,
+        tax_rate: settings.tax_rate,
+        receipt_footer: settings.receipt_footer,
+      }).eq('id', settings.id);
+      if (error) {
+        toast.error(`Failed to save settings: ${error.message}`);
+        return;
+      }
+      toast.success('Settings saved successfully');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to save settings.');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  if (loading || !settings) {
+  if (loading) {
     return <div className="space-y-6"><Card className="p-6 h-96 animate-pulse bg-muted/50" /></div>;
+  }
+
+  if (settingsError || !settings) {
+    return (
+      <Card className="max-w-3xl p-6">
+        <p className="text-sm text-destructive" role="alert">
+          {settingsError ?? 'Store settings could not be loaded.'}
+        </p>
+      </Card>
+    );
   }
 
   return (

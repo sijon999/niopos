@@ -30,7 +30,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { usePOSStore } from '@/store/pos-store';
-import { useAuthStore } from '@/store/auth-store';
+import { useAuth } from '@/components/providers';
 import { supabase } from '@/lib/supabase';
 import type { Product, Category } from '@/types';
 import { toast } from 'sonner';
@@ -47,11 +47,7 @@ export default function LandingPage() {
   const updateQuantity = usePOSStore((s) => s.updateQuantity);
   const removeFromCart = usePOSStore((s) => s.removeFromCart);
   const getSubtotal = usePOSStore((s) => s.getSubtotal);
-  const { user, isAdmin, hydrate, logout } = useAuthStore();
-
-  useEffect(() => {
-    hydrate();
-  }, [hydrate]);
+  const { user, isLoading: isAuthLoading } = useAuth();
 
   useEffect(() => {
     async function loadData() {
@@ -104,6 +100,15 @@ export default function LandingPage() {
 
   const pad = (n: number) => String(n).padStart(2, '0');
 
+  const handleLogout = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) toast.error(error.message);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to sign out.');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-amber-50/20 via-white to-white dark:from-amber-950/10 dark:via-background dark:to-background">
       {/* Navigation */}
@@ -120,10 +125,12 @@ export default function LandingPage() {
             <div className="hidden md:flex items-center gap-8">
               <Link href="/" className="text-sm font-medium text-foreground/80 hover:text-primary transition-colors">Home</Link>
               <Link href="/shop" className="text-sm font-medium text-foreground/80 hover:text-primary transition-colors">Shop</Link>
-              {isAdmin && <Link href="/admin/dashboard" className="text-sm font-medium text-foreground/80 hover:text-primary transition-colors">Dashboard</Link>}
-              {isAdmin && <Link href="/admin/pos" className="text-sm font-medium text-foreground/80 hover:text-primary transition-colors">POS</Link>}
-              {user ? (
-                <button onClick={logout} className="text-sm font-medium text-rose-600 hover:text-rose-700 transition-colors">Logout</button>
+              {user && <Link href="/admin/dashboard" className="text-sm font-medium text-foreground/80 hover:text-primary transition-colors">Dashboard</Link>}
+              {user && <Link href="/admin/pos" className="text-sm font-medium text-foreground/80 hover:text-primary transition-colors">POS</Link>}
+              {isAuthLoading ? (
+                <span className="text-sm text-muted-foreground" role="status">Checking session...</span>
+              ) : user ? (
+                <button onClick={handleLogout} className="text-sm font-medium text-rose-600 hover:text-rose-700 transition-colors">Logout</button>
               ) : (
                 <Link href="/login" className="text-sm font-medium text-foreground/80 hover:text-primary transition-colors">Login</Link>
               )}
@@ -138,11 +145,15 @@ export default function LandingPage() {
                   </span>
                 )}
               </Button>
-              <Button asChild size="sm" className="hidden sm:flex bg-gradient-to-r from-slate-800 to-black hover:from-slate-700 hover:to-slate-900">
-                <Link href={user ? (isAdmin ? '/admin/dashboard' : '/shop') : '/login'}>
-                  {user ? (isAdmin ? 'Dashboard' : 'My Account') : 'Get Started'}
-                </Link>
-              </Button>
+              {isAuthLoading ? (
+                <Button size="sm" className="hidden sm:flex" disabled>Checking session...</Button>
+              ) : (
+                <Button asChild size="sm" className="hidden sm:flex bg-gradient-to-r from-slate-800 to-black hover:from-slate-700 hover:to-slate-900">
+                  <Link href={user ? '/shop' : '/login'}>
+                    {user ? 'My Account' : 'Get Started'}
+                  </Link>
+                </Button>
+              )}
               <button className="md:hidden p-2" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
                 {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
               </button>
@@ -153,10 +164,12 @@ export default function LandingPage() {
             <div className="md:hidden py-4 border-t border-border/40 space-y-2">
               <Link href="/" className="block px-4 py-2 text-sm font-medium hover:bg-muted rounded-lg">Home</Link>
               <Link href="/shop" className="block px-4 py-2 text-sm font-medium hover:bg-muted rounded-lg">Shop</Link>
-              {isAdmin && <Link href="/admin/dashboard" className="block px-4 py-2 text-sm font-medium hover:bg-muted rounded-lg">Dashboard</Link>}
-              {isAdmin && <Link href="/admin/pos" className="block px-4 py-2 text-sm font-medium hover:bg-muted rounded-lg">POS</Link>}
-              {user ? (
-                <button onClick={logout} className="block w-full text-left px-4 py-2 text-sm font-medium text-rose-600 hover:bg-muted rounded-lg">Logout</button>
+              {user && <Link href="/admin/dashboard" className="block px-4 py-2 text-sm font-medium hover:bg-muted rounded-lg">Dashboard</Link>}
+              {user && <Link href="/admin/pos" className="block px-4 py-2 text-sm font-medium hover:bg-muted rounded-lg">POS</Link>}
+              {isAuthLoading ? (
+                <span className="block px-4 py-2 text-sm text-muted-foreground" role="status">Checking session...</span>
+              ) : user ? (
+                <button onClick={handleLogout} className="block w-full text-left px-4 py-2 text-sm font-medium text-rose-600 hover:bg-muted rounded-lg">Logout</button>
               ) : (
                 <Link href="/login" className="block px-4 py-2 text-sm font-medium hover:bg-muted rounded-lg">Login</Link>
               )}
@@ -205,7 +218,7 @@ export default function LandingPage() {
                     <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
                   </Link>
                 </Button>
-                {isAdmin && (
+                {user && (
                   <Button asChild size="lg" variant="outline" className="w-full sm:w-auto">
                     <Link href="/admin/dashboard">Admin Dashboard</Link>
                   </Button>
@@ -498,7 +511,7 @@ export default function LandingPage() {
               Sign up today and receive an exclusive discount code. Plus, manage your fashion store with StyleBazaar POS — complete point of sale, inventory, analytics, and more.
             </p>
             <div className="flex flex-col sm:flex-row gap-3">
-              {isAdmin ? (
+              {user ? (
                 <Button asChild size="lg" variant="secondary" className="w-full sm:w-auto group">
                   <Link href="/admin/dashboard">
                     Go to Dashboard <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />

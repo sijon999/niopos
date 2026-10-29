@@ -10,32 +10,76 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { useAuthStore } from '@/store/auth-store';
+import { supabase } from '@/lib/supabase';
+import { loadAuthenticatedProfile } from '@/lib/auth-profile';
 
 export default function LoginPage() {
   const router = useRouter();
-  const login = useAuthStore((s) => s.login);
-  const [email, setEmail] = useState('admin@stylebazaar.com');
-  const [password, setPassword] = useState('password');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      const isAdminEmail = email.includes('admin');
-      const role = isAdminEmail ? 'administrator' : 'user';
-      const name = email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-      login({ name: name || 'User', email, role });
-      toast.success('Welcome back to StyleBazaar!');
-      if (isAdminEmail) {
-        router.push('/admin/dashboard');
-      } else {
-        router.push('/shop');
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        toast.error(error.message);
+        return;
       }
-    }, 800);
+
+      const { data: authResult, error: authUserError } = await supabase.auth.getUser();
+      if (authUserError) {
+        toast.error(`Signed in, but verifying the authenticated user failed: ${authUserError.message}`);
+        return;
+      }
+      const authUser = authResult.user;
+      if (!authUser || authUser.id !== data.user.id) {
+        toast.error('Signed in, but the current Supabase Auth user does not match the sign-in result.');
+        return;
+      }
+
+      let profile;
+      try {
+        const result = await loadAuthenticatedProfile(authUser);
+        profile = result.profile;
+        if (result.warning) toast.warning(result.warning);
+      } catch (profileError) {
+        toast.error(
+          `Signed in as ${authUser.id}, but profile loading failed: ${
+            profileError instanceof Error ? profileError.message : 'Unknown profile lookup error.'
+          }`
+        );
+        return;
+      }
+
+      if (profile.id !== authUser.id) {
+        toast.error('The loaded profile does not match your authenticated Supabase user.');
+        return;
+      }
+
+      if (profile.status === 'pending') {
+        router.push('/pending-approval');
+      } else if (profile.status === 'rejected') {
+        router.push('/account-rejected');
+      } else if (profile.status === 'suspended') {
+        router.push('/account-suspended');
+      } else if (profile.status === 'approved' && profile.role === 'super_admin') {
+        toast.success('Welcome back to StyleBazaar!');
+        router.push('/admin/users');
+      } else if (profile.status === 'approved') {
+        toast.success('Welcome back to StyleBazaar!');
+        router.push(profile.role === 'cashier' ? '/admin/pos' : '/admin/dashboard');
+      } else {
+        toast.error('Your account status could not be verified. Please contact support.');
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to sign in.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -141,13 +185,6 @@ export default function LoginPage() {
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <input type="checkbox" id="remember" className="rounded border-border" defaultChecked />
-              <Label htmlFor="remember" className="text-sm font-normal cursor-pointer">
-                Remember me for 30 days
-              </Label>
             </div>
 
             <Button
