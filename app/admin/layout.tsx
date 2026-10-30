@@ -85,6 +85,7 @@ export default function AdminLayout({
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const { user, profile, isLoading: isAuthLoading, profileError } = useAuth();
+  const userId = user?.id;
   const { t, locale, setLocale } = useTranslation();
   const [permissions, setPermissions] = useState<string[] | null>(null);
   const [permissionsError, setPermissionsError] = useState<string | null>(null);
@@ -95,7 +96,7 @@ export default function AdminLayout({
 
   useEffect(() => {
     let current = true;
-    if (isAuthLoading || !user || !profile || profile.status !== 'approved') {
+    if (isAuthLoading || !userId || !profile || profile.status !== 'approved') {
       setPermissions(null);
       setPermissionsError(null);
       return () => {
@@ -132,7 +133,7 @@ export default function AdminLayout({
     return () => {
       current = false;
     };
-  }, [isAuthLoading, profile, user]);
+  }, [isAuthLoading, profile, userId]);
 
   const hasPermission = useCallback(
     (permission: string) =>

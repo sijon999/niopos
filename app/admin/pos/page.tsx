@@ -67,7 +67,6 @@ export default function POSPage() {
   const [heldOrdersOpen, setHeldOrdersOpen] = useState(false);
   const [addCustomerOpen, setAddCustomerOpen] = useState(false);
   const [newCustomer, setNewCustomer] = useState({ name: '', phone: '' });
-  const [brandFilter, setBrandFilter] = useState<string>('all');
   const [brands, setBrands] = useState<any[]>([]);
   const [eligibleOffers, setEligibleOffers] = useState<EligibleOffer[]>([]);
   const [selectedOffer, setSelectedOffer] = useState<EligibleOffer | null>(null);
@@ -81,8 +80,10 @@ export default function POSPage() {
     selectedCustomer,
     discount,
     paymentMethod,
+    selectedOfferId,
     searchQuery,
     selectedCategory,
+    selectedBrand: brandFilter,
     paidAmount,
     addToCart,
     removeFromCart,
@@ -92,14 +93,22 @@ export default function POSPage() {
     setCustomer,
     setDiscount,
     setPaymentMethod,
+    setSelectedOfferId,
     setSearchQuery,
     setSelectedCategory,
+    setSelectedBrand: setBrandFilter,
     setPaidAmount,
     getSubtotal,
     getItemDiscounts,
     getTax,
     getTotal,
   } = usePOSStore();
+
+  const clearTransaction = useCallback(() => {
+    clearCart();
+    setSelectedOffer(null);
+    setSelectedOfferId(null);
+  }, [clearCart, setSelectedOffer, setSelectedOfferId]);
 
   useEffect(() => {
     async function loadData() {
@@ -115,6 +124,10 @@ export default function POSPage() {
       setCustomers(custRes.data || []);
       setBrands(brandRes.data || []);
       setHeldOrders(heldRes.data || []);
+      const selectedCustomerId = usePOSStore.getState().selectedCustomerId;
+      if (selectedCustomerId && custRes.data) {
+        setCustomer(custRes.data.find((customer) => customer.id === selectedCustomerId) || null);
+      }
       setLoading(false);
     }
     loadData();
@@ -151,12 +164,12 @@ export default function POSPage() {
         if (checkoutOpen) setCheckoutOpen(false);
         else if (heldOrdersOpen) setHeldOrdersOpen(false);
         else if (addCustomerOpen) setAddCustomerOpen(false);
-        else clearCart();
+        else clearTransaction();
       }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [cart, checkoutOpen, heldOrdersOpen, addCustomerOpen]);
+  }, [cart, checkoutOpen, heldOrdersOpen, addCustomerOpen, clearTransaction]);
 
   // Fetch eligible offers when customer or cart changes
   useEffect(() => {
@@ -164,12 +177,15 @@ export default function POSPage() {
     const customerId = selectedCustomer?.id || null;
     fetchEligibleOffers(customerId, subtotal).then((offers) => {
       setEligibleOffers(offers);
-      // If selected offer is no longer eligible, clear it
-      if (selectedOffer && !offers.find((o) => o.id === selectedOffer.id)) {
+      if (selectedOfferId) {
+        const restoredOffer = offers.find((offer) => offer.id === selectedOfferId) || null;
+        if (selectedOffer?.id !== restoredOffer?.id) setSelectedOffer(restoredOffer);
+        if (!restoredOffer) setSelectedOfferId(null);
+      } else if (selectedOffer && !offers.find((o) => o.id === selectedOffer.id)) {
         setSelectedOffer(null);
       }
     });
-  }, [selectedCustomer, cart, getSubtotal, selectedOffer]);
+  }, [selectedCustomer, cart, getSubtotal, selectedOffer, selectedOfferId, setSelectedOfferId]);
 
   const itemDiscounts = getItemDiscounts();
   const offerDiscount = selectedOffer ? calculateOfferDiscount(selectedOffer, Math.max(0, getSubtotal() - itemDiscounts - discount)) : 0;
@@ -216,13 +232,13 @@ export default function POSPage() {
       return;
     }
     const { error } = await supabase.from('held_orders').insert({
-      order_data: { cart, customer: selectedCustomer, discount, paymentMethod },
+      order_data: { cart, customer: selectedCustomer, discount, paymentMethod, paidAmount, offerId: selectedOfferId },
       customer_name: selectedCustomer?.name || 'Walk-in',
       status: 'held',
     });
     if (!error) {
       toast.success('Order held');
-      clearCart();
+      clearTransaction();
       const { data } = await supabase.from('held_orders').select('*').eq('status', 'held').order('hold_time', { ascending: false });
       setHeldOrders(data || []);
     }
@@ -238,6 +254,8 @@ export default function POSPage() {
     if (od.customer) setCustomer(od.customer);
     if (od.discount) setDiscount(od.discount);
     if (od.paymentMethod) setPaymentMethod(od.paymentMethod);
+    if (typeof od.paidAmount === 'number') setPaidAmount(od.paidAmount);
+    if (typeof od.offerId === 'string') setSelectedOfferId(od.offerId);
     await supabase.from('held_orders').update({ status: 'retrieved' }).eq('id', order.id);
     setHeldOrders(heldOrders.filter((h) => h.id !== order.id));
     setHeldOrdersOpen(false);
@@ -299,9 +317,8 @@ export default function POSPage() {
     setLastInvoice({ ...saleData, items: cart, customer: selectedCustomer, offer: selectedOffer ? { name: selectedOffer.name, discount: offerDiscount } : null });
     setCheckoutOpen(false);
     setReceiptOpen(true);
-    setSelectedOffer(null);
     setEligibleOffers([]);
-    clearCart();
+    clearTransaction();
     setPaidAmount(0);
     toast.success('Sale completed successfully!');
   };
@@ -465,10 +482,12 @@ export default function POSPage() {
                   if (!check.valid) {
                     toast.error(check.message || 'Minimum purchase not met');
                     setSelectedOffer(null);
+                    setSelectedOfferId(null);
                     return;
                   }
                 }
                 setSelectedOffer(offer);
+                setSelectedOfferId(offer?.id ?? null);
               }}
               className="h-7 w-full min-w-0 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3"
             >
@@ -485,7 +504,10 @@ export default function POSPage() {
             )}
             {selectedOffer && (
               <button
-                onClick={() => setSelectedOffer(null)}
+                onClick={() => {
+                  setSelectedOffer(null);
+                  setSelectedOfferId(null);
+                }}
                 className="flex items-center gap-1 text-xs text-rose-600 hover:text-rose-700"
               >
                 <X className="w-3 h-3" /> Remove Discount

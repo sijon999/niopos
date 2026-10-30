@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import type { CartItem, Product, Customer } from '@/types';
 
 export function calcLineDiscount(item: Pick<CartItem, 'price' | 'quantity' | 'discount_type' | 'discount_value'>): number {
@@ -20,13 +21,18 @@ export function calcLineTotal(item: Pick<CartItem, 'price' | 'quantity' | 'disco
 }
 
 type POSState = {
+  ownerId: string | null;
   cart: CartItem[];
   selectedCustomer: Customer | null;
+  selectedCustomerId: string | null;
   discount: number;
   paymentMethod: string;
+  selectedOfferId: string | null;
   searchQuery: string;
   selectedCategory: string;
+  selectedBrand: string;
   paidAmount: number;
+  setAuthUserId: (userId: string | null) => void;
   addToCart: (product: Product) => void;
   removeFromCart: (productId: string) => void;
   updateQuantity: (productId: string, quantity: number) => void;
@@ -35,8 +41,10 @@ type POSState = {
   setCustomer: (customer: Customer | null) => void;
   setDiscount: (discount: number) => void;
   setPaymentMethod: (method: string) => void;
+  setSelectedOfferId: (offerId: string | null) => void;
   setSearchQuery: (query: string) => void;
   setSelectedCategory: (category: string) => void;
+  setSelectedBrand: (brand: string) => void;
   setPaidAmount: (amount: number) => void;
   getSubtotal: () => number;
   getItemDiscounts: () => number;
@@ -44,96 +52,145 @@ type POSState = {
   getTotal: () => number;
 };
 
-export const usePOSStore = create<POSState>((set, get) => ({
-  cart: [],
-  selectedCustomer: null,
-  discount: 0,
-  paymentMethod: 'cash',
-  searchQuery: '',
-  selectedCategory: 'all',
-  paidAmount: 0,
+export const usePOSStore = create<POSState>()(
+  persist(
+    (set, get) => ({
+      ownerId: null,
+      cart: [],
+      selectedCustomer: null,
+      selectedCustomerId: null,
+      discount: 0,
+      paymentMethod: 'cash',
+      selectedOfferId: null,
+      searchQuery: '',
+      selectedCategory: 'all',
+      selectedBrand: 'all',
+      paidAmount: 0,
 
-  addToCart: (product) => {
-    const cart = get().cart;
-    const existing = cart.find((item) => item.product_id === product.id);
-    if (existing) {
-      if (existing.quantity >= product.stock) return;
-      set({
-        cart: cart.map((item) =>
-          item.product_id === product.id
-            ? { ...item, quantity: item.quantity + 1 }
-            : item
-        ),
-      });
-    } else {
-      set({
-        cart: [
-          ...cart,
-          {
-            product_id: product.id,
-            name: product.name,
-            price: product.discount_price || product.selling_price,
-            quantity: 1,
-            stock: product.stock,
-            image_url: product.image_url,
-            discount_type: 'percentage',
-            discount_value: 0,
-          },
-        ],
-      });
+      setAuthUserId: (userId) =>
+        set((state) => state.ownerId === userId ? state : {
+          ownerId: userId,
+          cart: [],
+          selectedCustomer: null,
+          selectedCustomerId: null,
+          discount: 0,
+          paymentMethod: 'cash',
+          selectedOfferId: null,
+          searchQuery: '',
+          selectedCategory: 'all',
+          selectedBrand: 'all',
+          paidAmount: 0,
+        }),
+
+      addToCart: (product) => {
+        const cart = get().cart;
+        const existing = cart.find((item) => item.product_id === product.id);
+        if (existing) {
+          if (existing.quantity >= product.stock) return;
+          set({
+            cart: cart.map((item) =>
+              item.product_id === product.id
+                ? { ...item, quantity: item.quantity + 1 }
+                : item
+            ),
+          });
+        } else {
+          set({
+            cart: [
+              ...cart,
+              {
+                product_id: product.id,
+                name: product.name,
+                price: product.discount_price || product.selling_price,
+                quantity: 1,
+                stock: product.stock,
+                image_url: product.image_url,
+                discount_type: 'percentage',
+                discount_value: 0,
+              },
+            ],
+          });
+        }
+      },
+
+      removeFromCart: (productId) =>
+        set((state) => ({
+          cart: state.cart.filter((item) => item.product_id !== productId),
+        })),
+
+      updateQuantity: (productId, quantity) =>
+        set((state) => ({
+          cart: state.cart.map((item) =>
+            item.product_id === productId
+              ? { ...item, quantity: Math.max(1, Math.min(quantity, item.stock)) }
+              : item
+          ),
+        })),
+
+      updateItemDiscount: (productId, discountType, discountValue) =>
+        set((state) => ({
+          cart: state.cart.map((item) =>
+            item.product_id === productId
+              ? { ...item, discount_type: discountType, discount_value: Math.max(0, discountValue) }
+              : item
+          ),
+        })),
+
+      clearCart: () =>
+        set({
+          cart: [],
+          selectedCustomer: null,
+          selectedCustomerId: null,
+          discount: 0,
+          paymentMethod: 'cash',
+          selectedOfferId: null,
+          paidAmount: 0,
+        }),
+
+      setCustomer: (customer) =>
+        set({ selectedCustomer: customer, selectedCustomerId: customer?.id ?? null }),
+      setDiscount: (discount) => set({ discount }),
+      setPaymentMethod: (method) => set({ paymentMethod: method }),
+      setSelectedOfferId: (offerId) => set({ selectedOfferId: offerId }),
+      setSearchQuery: (query) => set({ searchQuery: query }),
+      setSelectedCategory: (category) => set({ selectedCategory: category }),
+      setSelectedBrand: (brand) => set({ selectedBrand: brand }),
+      setPaidAmount: (amount) => set({ paidAmount: amount }),
+
+      getSubtotal: () =>
+        get().cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
+
+      getItemDiscounts: () =>
+        get().cart.reduce((sum, item) => sum + calcLineDiscount(item), 0),
+
+      getTax: () => {
+        const subtotal = get().getSubtotal();
+        const itemDiscounts = get().getItemDiscounts();
+        const afterDiscount = subtotal - itemDiscounts - get().discount;
+        return Math.round(Math.max(0, afterDiscount) * 0.05 * 100) / 100;
+      },
+
+      getTotal: () => {
+        const subtotal = get().getSubtotal();
+        const itemDiscounts = get().getItemDiscounts();
+        const tax = get().getTax();
+        return Math.round((subtotal - itemDiscounts - get().discount + tax) * 100) / 100;
+      },
+    }),
+    {
+      name: 'niopos-pos-state',
+      partialize: (state) => ({
+        ownerId: state.ownerId,
+        cart: state.cart,
+        selectedCustomerId: state.selectedCustomerId,
+        discount: state.discount,
+        paymentMethod: state.paymentMethod,
+        selectedOfferId: state.selectedOfferId,
+        searchQuery: state.searchQuery,
+        selectedCategory: state.selectedCategory,
+        selectedBrand: state.selectedBrand,
+        paidAmount: state.paidAmount,
+      }),
     }
-  },
-
-  removeFromCart: (productId) =>
-    set((state) => ({
-      cart: state.cart.filter((item) => item.product_id !== productId),
-    })),
-
-  updateQuantity: (productId, quantity) =>
-    set((state) => ({
-      cart: state.cart.map((item) =>
-        item.product_id === productId
-          ? { ...item, quantity: Math.max(1, Math.min(quantity, item.stock)) }
-          : item
-      ),
-    })),
-
-  updateItemDiscount: (productId, discountType, discountValue) =>
-    set((state) => ({
-      cart: state.cart.map((item) =>
-        item.product_id === productId
-          ? { ...item, discount_type: discountType, discount_value: Math.max(0, discountValue) }
-          : item
-      ),
-    })),
-
-  clearCart: () =>
-    set({ cart: [], selectedCustomer: null, discount: 0, paymentMethod: 'cash', paidAmount: 0 }),
-
-  setCustomer: (customer) => set({ selectedCustomer: customer }),
-  setDiscount: (discount) => set({ discount }),
-  setPaymentMethod: (method) => set({ paymentMethod: method }),
-  setSearchQuery: (query) => set({ searchQuery: query }),
-  setSelectedCategory: (category) => set({ selectedCategory: category }),
-  setPaidAmount: (amount) => set({ paidAmount: amount }),
-
-  getSubtotal: () =>
-    get().cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
-
-  getItemDiscounts: () =>
-    get().cart.reduce((sum, item) => sum + calcLineDiscount(item), 0),
-
-  getTax: () => {
-    const subtotal = get().getSubtotal();
-    const itemDiscounts = get().getItemDiscounts();
-    const afterDiscount = subtotal - itemDiscounts - get().discount;
-    return Math.round(Math.max(0, afterDiscount) * 0.05 * 100) / 100;
-  },
-
-  getTotal: () => {
-    const subtotal = get().getSubtotal();
-    const itemDiscounts = get().getItemDiscounts();
-    const tax = get().getTax();
-    return Math.round((subtotal - itemDiscounts - get().discount + tax) * 100) / 100;
-  },
-}));
+  )
+);

@@ -4,11 +4,12 @@ import { ThemeProvider as NextThemesProvider } from 'next-themes';
 import type { ThemeProviderProps } from 'next-themes/dist/types';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import type { User } from '@supabase/supabase-js';
+import type { Session, User } from '@supabase/supabase-js';
 import { Toaster } from '@/components/ui/sonner';
 import { supabase } from '@/lib/supabase';
 import { loadAuthenticatedProfile } from '@/lib/auth-profile';
 import type { AuthProfile } from '@/lib/auth-profile';
+import { usePOSStore } from '@/store/pos-store';
 
 export type { AuthProfile } from '@/lib/auth-profile';
 
@@ -35,6 +36,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [profileError, setProfileError] = useState<string | null>(null);
   const profileRequest = useRef(0);
+  const activeUserId = useRef<string | null>(null);
+  const hasInitializedAuth = useRef(false);
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -47,22 +50,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
       })
   );
 
-  const loadProfile = useCallback(async (userId: string, requestId: number) => {
+  const loadProfile = useCallback(async (user: User, requestId: number) => {
     try {
-      const { data: authResult, error: authError } = await supabase.auth.getUser();
-      if (requestId !== profileRequest.current) return;
-      if (authError) {
-        setProfileError(`Unable to verify the current Auth user: ${authError.message}`);
-        setProfile(null);
-        return;
-      }
-      if (!authResult.user || authResult.user.id !== userId) {
-        setProfileError('The current Supabase Auth user does not match the active session.');
-        setProfile(null);
-        return;
-      }
-
-      const result = await loadAuthenticatedProfile(authResult.user);
+      const result = await loadAuthenticatedProfile(user);
       if (requestId !== profileRequest.current) return;
       setProfile(result.profile);
       setProfileError(null);
@@ -82,35 +72,71 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      const requestId = ++profileRequest.current;
-      setUser(session?.user ?? null);
+    let active = true;
+    let authEventVersion = 0;
+
+    const applySession = (session: Session | null, updateSameUser = false) => {
+      const nextUser = session?.user ?? null;
+      const nextUserId = nextUser?.id ?? null;
+      const isFirstSession = !hasInitializedAuth.current;
+      const userChanged = activeUserId.current !== nextUserId;
+
+      if (isFirstSession || userChanged) {
+        setUser(nextUser);
+      } else if (updateSameUser && nextUser) {
+        setUser(nextUser);
+      }
+      if (!isFirstSession && !userChanged) return;
+
+      hasInitializedAuth.current = true;
+      activeUserId.current = nextUserId;
+      usePOSStore.getState().setAuthUserId(nextUserId);
       setProfile(null);
       setProfileError(null);
-      if (session?.user) {
-        setIsAuthLoading(true);
-        void loadProfile(session.user.id, requestId);
-      } else {
-        setIsAuthLoading(false);
-      }
-    });
 
-    return () => subscription.unsubscribe();
-  }, [loadProfile]);
-
-  useEffect(() => {
-    const refreshProfile = () => {
-      if (user) {
+      if (nextUser) {
         const requestId = ++profileRequest.current;
         setIsAuthLoading(true);
-        void loadProfile(user.id, requestId);
+        window.setTimeout(() => {
+          if (requestId === profileRequest.current) {
+            void loadProfile(nextUser, requestId);
+          }
+        }, 0);
+      } else {
+        ++profileRequest.current;
+        setIsAuthLoading(false);
       }
     };
-    window.addEventListener('focus', refreshProfile);
-    return () => window.removeEventListener('focus', refreshProfile);
-  }, [loadProfile, user]);
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      authEventVersion += 1;
+      applySession(session, event === 'USER_UPDATED');
+    });
+
+    const initialEventVersion = authEventVersion;
+    void supabase.auth.getSession().then(({ data, error }) => {
+      if (!active || authEventVersion !== initialEventVersion) return;
+      if (error) {
+        setProfileError(`Unable to restore your Supabase session: ${error.message}`);
+        setIsAuthLoading(false);
+        return;
+      }
+      applySession(data.session);
+    }).catch((error: unknown) => {
+      if (!active || authEventVersion !== initialEventVersion) return;
+      setProfileError(
+        error instanceof Error ? error.message : 'Unable to restore your Supabase session.'
+      );
+      setIsAuthLoading(false);
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, [loadProfile]);
 
   return (
     <NextThemesProvider
