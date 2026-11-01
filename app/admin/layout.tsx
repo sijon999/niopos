@@ -29,7 +29,6 @@ import {
   Barcode as BarcodeIcon,
   ChevronRight,
   Globe,
-  ClipboardCheck,
   Gift,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -200,8 +199,10 @@ export default function AdminLayout({
           { href: '/admin/categories', labelKey: 'navigation.categories' },
           { href: '/admin/units', labelKey: 'navigation.units' },
         ] },
-        { href: '/admin/inventory', labelKey: 'navigation.inventory', icon: Boxes },
-        { href: '/admin/stock-reconciliation', labelKey: 'navigation.stockReconciliation', icon: ClipboardCheck },
+        { href: '/admin/inventory', labelKey: 'navigation.inventory', icon: Boxes, children: [
+          { href: '/admin/inventory', labelKey: 'navigation.inventory' },
+          { href: '/admin/stock-reconciliation', labelKey: 'navigation.stockReconciliation' },
+        ] },
         { href: '/admin/barcode', labelKey: 'navigation.barcode', icon: BarcodeIcon, children: [
           { href: '/admin/barcode/generate', labelKey: 'navigation.generateBarcode' },
           { href: '/admin/barcode/scan', labelKey: 'navigation.scanBarcode' },
@@ -243,6 +244,10 @@ export default function AdminLayout({
     .some((route) => pathname === route || pathname.startsWith(`${route}/`));
   const [productOpen, setProductOpen] = useState(productExpanded);
   useEffect(() => { if (productExpanded) setProductOpen(true); }, [pathname, productExpanded]);
+  const inventoryExpanded = ['/admin/inventory', '/admin/stock-reconciliation']
+    .some((route) => pathname === route || pathname.startsWith(`${route}/`));
+  const [inventoryOpen, setInventoryOpen] = useState(inventoryExpanded);
+  useEffect(() => { if (inventoryExpanded) setInventoryOpen(true); }, [pathname, inventoryExpanded]);
 
   const switchLanguage = (newLocale: Locale) => {
     setLocale(newLocale);
@@ -314,8 +319,16 @@ export default function AdminLayout({
               ? item.children.some((child) => pathname === child.href || pathname.startsWith(child.href + '/'))
               : pathname.startsWith(item.href + '/'));
             if (item.children) {
-              const submenuOpen = item.href === '/admin/products' ? productOpen : barcodeOpen;
-              const setSubmenuOpen = item.href === '/admin/products' ? setProductOpen : setBarcodeOpen;
+              const submenuOpen = item.href === '/admin/products'
+                ? productOpen
+                : item.href === '/admin/inventory'
+                  ? inventoryOpen
+                  : barcodeOpen;
+              const setSubmenuOpen = item.href === '/admin/products'
+                ? setProductOpen
+                : item.href === '/admin/inventory'
+                  ? setInventoryOpen
+                  : setBarcodeOpen;
               return (
                 <div key={item.href}>
                   <button
