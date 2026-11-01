@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase';
 import { loadAuthenticatedProfile } from '@/lib/auth-profile';
 import type { AuthProfile } from '@/lib/auth-profile';
 import { usePOSStore } from '@/store/pos-store';
+import { useI18nStore } from '@/store/i18n-store';
 
 export type { AuthProfile } from '@/lib/auth-profile';
 
@@ -28,6 +29,17 @@ export function useAuth() {
     throw new Error('useAuth must be used within Providers');
   }
   return context;
+}
+
+function LocaleSettings() {
+  const locale = useI18nStore((state) => state.locale);
+
+  useEffect(() => {
+    document.documentElement.lang = locale;
+    document.body.classList.toggle('locale-bn', locale === 'bn');
+  }, [locale]);
+
+  return null;
 }
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -146,6 +158,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       disableTransitionOnChange
     >
       <QueryClientProvider client={queryClient}>
+        <LocaleSettings />
         <AuthContext.Provider value={{ user, profile, isLoading: isAuthLoading, profileError }}>
           {children}
         </AuthContext.Provider>

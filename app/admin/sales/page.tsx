@@ -39,6 +39,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import type { Sale, SaleItem } from '@/types';
 import { toast } from 'sonner';
+import { useTranslation } from '@/hooks/use-translation';
 
 type DatePreset = 'all' | 'today' | 'yesterday' | 'thisWeek' | 'thisMonth' | 'custom';
 type PaymentFilter = 'all' | 'cash' | 'card' | 'mobile' | 'bank' | 'due';
@@ -91,8 +92,8 @@ function getPresetRange(
   }
 }
 
-function formatDateTime(value: string): string {
-  return new Date(value).toLocaleString(undefined, {
+function formatDateTime(value: string, locale: 'en' | 'bn'): string {
+  return new Date(value).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
@@ -126,6 +127,7 @@ const payStatusBadgeClass = (paymentStatus: string): string =>
     : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400';
 
 export default function SalesPage() {
+  const { t, locale } = useTranslation();
   const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -153,13 +155,13 @@ export default function SalesPage() {
 
     const { data, error } = await query;
     if (error) {
-      toast.error('Could not load sales');
+      toast.error(t('sales.loadFailed'));
       setSales([]);
     } else {
       setSales((data as Sale[]) || []);
     }
     setLoading(false);
-  }, [dateFrom, dateTo, paymentMethod, statusFilter]);
+  }, [dateFrom, dateTo, paymentMethod, statusFilter, t]);
 
   useEffect(() => {
     loadSales();
@@ -233,11 +235,11 @@ export default function SalesPage() {
     setCancellingId(sale.id);
     const { error } = await supabase.rpc('cancel_sale', { p_sale_id: sale.id });
     if (error) {
-      toast.error('Failed to cancel sale');
+      toast.error(t('sales.cancelFailed'));
       setCancellingId(null);
       return;
     }
-    toast.success('Sale cancelled and stock restored');
+    toast.success(t('sales.cancelSuccess'));
     setDetailSale(null);
     setCancellingId(null);
     loadSales();
@@ -259,10 +261,10 @@ export default function SalesPage() {
     Boolean(search.trim());
 
   const stats = [
-    { label: 'Total Sales', value: formatMoney(totalSales), icon: DollarSign, color: 'from-amber-500 to-orange-600' },
-    { label: "Today's Sales", value: formatMoney(todaySales), icon: Calendar, color: 'from-blue-500 to-cyan-600' },
-    { label: 'Total Orders', value: totalOrders, icon: Receipt, color: 'from-slate-800 to-black' },
-    { label: 'Total Due', value: formatMoney(totalDue), icon: ShoppingBag, color: 'from-rose-500 to-pink-600' },
+    { label: t('dashboard.totalSales'), value: formatMoney(totalSales), icon: DollarSign, color: 'from-amber-500 to-orange-600' },
+    { label: t('dashboard.todaySales'), value: formatMoney(todaySales), icon: Calendar, color: 'from-blue-500 to-cyan-600' },
+    { label: t('dashboard.totalOrders'), value: totalOrders, icon: Receipt, color: 'from-slate-800 to-black' },
+    { label: t('dashboard.dueSales'), value: formatMoney(totalDue), icon: ShoppingBag, color: 'from-rose-500 to-pink-600' },
   ];
 
   return (
@@ -274,10 +276,10 @@ export default function SalesPage() {
           </div>
           <div>
             <h2 className="text-2xl font-bold font-heading">
-              Sales / বিক্রয়
+              {t('sales.title')}
             </h2>
             <p className="text-sm text-muted-foreground">
-              View all completed transactions
+              {t('sales.subtitle')}
             </p>
           </div>
         </div>
@@ -311,14 +313,14 @@ export default function SalesPage() {
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search invoice number or customer name..."
+              placeholder={t('sales.search')}
               className="pl-9"
             />
             {search && (
               <button
                 onClick={() => setSearch('')}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                aria-label="Clear search"
+                aria-label={t('common.clearSearch')}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -333,12 +335,12 @@ export default function SalesPage() {
                 onChange={(event) => handlePresetChange(event.target.value as DatePreset)}
                 className="h-9 rounded-md border border-input bg-background px-3 text-sm"
               >
-                <option value="all">All Time</option>
-                <option value="today">Today</option>
-                <option value="yesterday">Yesterday</option>
-                <option value="thisWeek">This Week</option>
-                <option value="thisMonth">This Month</option>
-                <option value="custom">Custom Range</option>
+                <option value="all">{t('sales.allTime')}</option>
+                <option value="today">{t('sales.today')}</option>
+                <option value="yesterday">{t('sales.yesterday')}</option>
+                <option value="thisWeek">{t('sales.thisWeek')}</option>
+                <option value="thisMonth">{t('sales.thisMonth')}</option>
+                <option value="custom">{t('sales.customRange')}</option>
               </select>
             </div>
 
@@ -350,7 +352,7 @@ export default function SalesPage() {
                   onChange={(event) => setDateFrom(event.target.value)}
                   className="h-9 w-auto text-sm"
                 />
-                <span className="text-muted-foreground text-sm">to</span>
+                <span className="text-muted-foreground text-sm">{t('common.to')}</span>
                 <Input
                   type="date"
                   value={dateTo}
@@ -366,12 +368,12 @@ export default function SalesPage() {
               onChange={(event) => setPaymentMethod(event.target.value as PaymentFilter)}
               className="h-9 rounded-md border border-input bg-background px-3 text-sm capitalize"
             >
-              <option value="all">All Payments</option>
-              <option value="cash">Cash</option>
-              <option value="card">Card</option>
-              <option value="mobile">Mobile</option>
-              <option value="bank">Bank</option>
-              <option value="due">Due</option>
+              <option value="all">{t('sales.allPayments')}</option>
+              <option value="cash">{t('pos.cash')}</option>
+              <option value="card">{t('pos.card')}</option>
+              <option value="mobile">{t('pos.mobile')}</option>
+              <option value="bank">{t('sales.bank')}</option>
+              <option value="due">{t('pos.due')}</option>
             </select>
 
             <select
@@ -379,14 +381,14 @@ export default function SalesPage() {
               onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
               className="h-9 rounded-md border border-input bg-background px-3 text-sm"
             >
-              <option value="all">All Status</option>
-              <option value="completed">Completed</option>
-              <option value="cancelled">Cancelled</option>
+              <option value="all">{t('sales.allStatus')}</option>
+              <option value="completed">{t('sales.status.completed')}</option>
+              <option value="cancelled">{t('sales.status.cancelled')}</option>
             </select>
 
             {hasFilters && (
               <Button variant="ghost" size="sm" onClick={clearFilters}>
-                Clear
+                {t('common.clear')}
               </Button>
             )}
           </div>
@@ -398,15 +400,15 @@ export default function SalesPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Invoice</TableHead>
-                <TableHead>Customer</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead className="text-center">Items</TableHead>
-                <TableHead className="text-right">Total</TableHead>
-                <TableHead>Payment Method</TableHead>
-                <TableHead>Pay Status</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead>{t('sales.invoice')}</TableHead>
+                <TableHead>{t('customers.title')}</TableHead>
+                <TableHead>{t('common.date')}</TableHead>
+                <TableHead className="text-center">{t('sales.items')}</TableHead>
+                <TableHead className="text-right">{t('common.total')}</TableHead>
+                <TableHead>{t('sales.paymentMethod')}</TableHead>
+                <TableHead>{t('sales.paymentStatus.title')}</TableHead>
+                <TableHead>{t('common.status')}</TableHead>
+                <TableHead className="text-right">{t('common.actions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -424,9 +426,9 @@ export default function SalesPage() {
                 <TableRow>
                   <TableCell colSpan={9} className="py-16 text-center">
                     <ShoppingBag className="w-12 h-12 mx-auto mb-3 text-muted-foreground opacity-40" />
-                    <p className="font-medium">No sales found</p>
+                    <p className="font-medium">{t('sales.noSales')}</p>
                     <p className="text-sm text-muted-foreground mt-1">
-                      Try adjusting the search or filter options.
+                      {t('sales.adjustFilters')}
                     </p>
                   </TableCell>
                 </TableRow>
@@ -444,10 +446,10 @@ export default function SalesPage() {
                     >
                       <TableCell className="font-medium">{sale.invoice_number}</TableCell>
                       <TableCell className="text-sm">
-                        {sale.customers?.name || 'Walk-in Customer'}
+                        {sale.customers?.name || t('pos.walkInCustomer')}
                       </TableCell>
                       <TableCell className="text-sm whitespace-nowrap">
-                        {formatDateTime(sale.sale_date)}
+                        {formatDateTime(sale.sale_date, locale)}
                       </TableCell>
                       <TableCell className="text-center text-sm">
                         {sale.sale_items?.length ?? 0}
@@ -460,12 +462,12 @@ export default function SalesPage() {
                       </TableCell>
                       <TableCell>
                         <Badge className={payStatusBadgeClass(sale.payment_status)}>
-                          {sale.payment_status}
+                          {t(`sales.paymentStatus.${sale.payment_status}`)}
                         </Badge>
                       </TableCell>
                       <TableCell>
                         <Badge className={statusBadgeClass(sale.status)}>
-                          {sale.status}
+                          {t(`sales.status.${sale.status}`)}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
@@ -477,7 +479,7 @@ export default function SalesPage() {
                               event.stopPropagation();
                               openDetail(sale);
                             }}
-                            aria-label="View sale"
+                            aria-label={t('sales.viewSale')}
                           >
                             <Eye className="w-4 h-4" />
                           </Button>
@@ -491,7 +493,7 @@ export default function SalesPage() {
                                 handleCancel(sale);
                               }}
                               disabled={cancellingId === sale.id}
-                              aria-label="Cancel sale"
+                              aria-label={t('sales.cancelSale')}
                             >
                               <Ban className="w-4 h-4" />
                             </Button>
@@ -517,22 +519,22 @@ export default function SalesPage() {
                   <DialogTitle>{detailSale.invoice_number}</DialogTitle>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  {formatDateTime(detailSale.sale_date)}
+                  {formatDateTime(detailSale.sale_date, locale)}
                   {detailSale.customers?.name
                     ? ` · ${detailSale.customers.name}`
-                    : ' · Walk-in Customer'}
+                    : ` · ${t('pos.walkInCustomer')}`}
                 </p>
               </DialogHeader>
 
               <div className="flex flex-wrap gap-2">
                 <Badge className={statusBadgeClass(detailSale.status)}>
-                  {detailSale.status}
+                  {t(`sales.status.${detailSale.status}`)}
                 </Badge>
                 <Badge className={payStatusBadgeClass(detailSale.payment_status)}>
                   {detailSale.payment_status === 'paid' && (
                     <CheckCircle2 className="w-3 h-3 mr-1" />
                   )}
-                  {detailSale.payment_status}
+                  {t(`sales.paymentStatus.${detailSale.payment_status}`)}
                 </Badge>
                 <Badge variant="outline" className="capitalize">
                   {detailSale.payment_method}
@@ -544,11 +546,11 @@ export default function SalesPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Product</TableHead>
-                        <TableHead className="text-center">Qty</TableHead>
-                        <TableHead className="text-right">Unit Price</TableHead>
-                        <TableHead className="text-right">Discount</TableHead>
-                        <TableHead className="text-right">Line Total</TableHead>
+                        <TableHead>{t('products.productName')}</TableHead>
+                        <TableHead className="text-center">{t('common.quantity')}</TableHead>
+                        <TableHead className="text-right">{t('sales.unitPrice')}</TableHead>
+                        <TableHead className="text-right">{t('products.discount')}</TableHead>
+                        <TableHead className="text-right">{t('sales.lineTotal')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -587,7 +589,7 @@ export default function SalesPage() {
                       {(!detailSale.sale_items || detailSale.sale_items.length === 0) && (
                         <TableRow>
                           <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                            No items found
+                            {t('sales.noItems')}
                           </TableCell>
                         </TableRow>
                       )}
@@ -600,40 +602,40 @@ export default function SalesPage() {
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Subtotal</span>
+                  <span className="text-muted-foreground">{t('pos.subtotal')}</span>
                   <span className="font-medium">
                     {formatMoney(Number(detailSale.subtotal))}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Product Discounts</span>
+                  <span className="text-muted-foreground">{t('sales.productDiscounts')}</span>
                   <span className="font-medium text-rose-600 dark:text-rose-400">
                     -{formatMoney(productDiscounts)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Tax</span>
+                  <span className="text-muted-foreground">{t('pos.tax')}</span>
                   <span className="font-medium">{formatMoney(Number(detailSale.tax))}</span>
                 </div>
                 <Separator />
                 <div className="flex items-center justify-between">
-                  <span className="font-semibold">Total</span>
+                  <span className="font-semibold">{t('common.total')}</span>
                   <span className="text-lg font-bold text-amber-600 dark:text-amber-400">
                     {formatMoney(Number(detailSale.total))}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Paid</span>
+                  <span className="text-muted-foreground">{t('sales.paid')}</span>
                   <span className="font-medium text-emerald-600 dark:text-emerald-400">
                     {formatMoney(Number(detailSale.paid))}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Change</span>
+                  <span className="text-muted-foreground">{t('sales.change')}</span>
                   <span className="font-medium">{formatMoney(Number(detailSale.change))}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Due</span>
+                  <span className="text-muted-foreground">{t('pos.due')}</span>
                   <span className="font-medium text-amber-600 dark:text-amber-400">
                     {formatMoney(Number(detailSale.due_amount))}
                   </span>
@@ -642,7 +644,7 @@ export default function SalesPage() {
 
               <DialogFooter className="gap-2">
                 <Button variant="outline" onClick={handlePrint}>
-                  <Printer className="w-4 h-4 mr-2" /> Print Receipt
+                  <Printer className="w-4 h-4 mr-2" /> {t('pos.printReceipt')}
                 </Button>
                 {detailSale.status === 'completed' && (
                   <Button
@@ -652,7 +654,7 @@ export default function SalesPage() {
                     disabled={cancellingId === detailSale.id}
                   >
                     <Ban className="w-4 h-4 mr-2" />
-                    {cancellingId === detailSale.id ? 'Cancelling...' : 'Cancel Sale'}
+                    {cancellingId === detailSale.id ? t('sales.cancelling') : t('sales.cancelSale')}
                   </Button>
                 )}
               </DialogFooter>

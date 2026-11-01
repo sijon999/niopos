@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { useAuth } from '@/components/providers';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
+import { useTranslation } from '@/hooks/use-translation';
 
 type TeamMember = {
   user_id: string;
@@ -30,6 +31,7 @@ type TeamInvitation = {
 
 export default function EmployeeAccessPanel() {
   const { profile } = useAuth();
+  const { t, locale } = useTranslation();
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [invitations, setInvitations] = useState<TeamInvitation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,11 +58,11 @@ export default function EmployeeAccessPanel() {
       setTeamMembers(members);
       setInvitations((invitationsResult.data || []) as TeamInvitation[]);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to load the store team.');
+      setErrorMessage(error instanceof Error ? error.message : t('employees.teamLoadFailed'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void loadTeam();
@@ -82,7 +84,7 @@ export default function EmployeeAccessPanel() {
       }
       const created = Array.isArray(data) ? data[0] : null;
       if (!created?.invitation_token) {
-        toast.error('Invitation was created but no registration token was returned.');
+        toast.error(t('employees.invitationTokenMissing'));
         return;
       }
       const url = new URL('/register', window.location.origin);
@@ -91,14 +93,14 @@ export default function EmployeeAccessPanel() {
       setInvitationLink(link);
       try {
         await navigator.clipboard.writeText(link);
-        toast.success('Invitation link created and copied.');
+        toast.success(t('employees.invitationCopied'));
       } catch {
-        toast.success('Invitation link created. Copy it from the field below.');
+        toast.success(t('employees.invitationCreated'));
       }
       setInviteEmail('');
       await loadTeam();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to create an invitation.');
+      toast.error(error instanceof Error ? error.message : t('employees.invitationFailed'));
     } finally {
       setInviting(false);
     }
@@ -116,10 +118,10 @@ export default function EmployeeAccessPanel() {
         toast.error(error.message);
         return;
       }
-      toast.success(status === 'approved' ? 'Team member reactivated.' : `Team member ${status}.`);
+      toast.success(status === 'approved' ? t('employees.memberReactivated') : t('employees.memberStatusUpdated'));
       await loadTeam();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to update team member.');
+      toast.error(error instanceof Error ? error.message : t('employees.memberUpdateFailed'));
     }
   };
 
@@ -132,10 +134,10 @@ export default function EmployeeAccessPanel() {
         toast.error(error.message);
         return;
       }
-      toast.success('Invitation revoked.');
+      toast.success(t('employees.invitationRevoked'));
       await loadTeam();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to revoke invitation.');
+      toast.error(error instanceof Error ? error.message : t('employees.invitationRevokeFailed'));
     }
   };
 
@@ -144,9 +146,9 @@ export default function EmployeeAccessPanel() {
   return (
     <Card className="space-y-5 p-5">
       <div>
-        <h2 className="text-xl font-bold font-heading">Store access</h2>
+        <h2 className="text-xl font-bold font-heading">{t('employees.storeAccess')}</h2>
         <p className="text-sm text-muted-foreground">
-          Invite cashiers who can use the POS to complete sales. They cannot access inventory, reports, purchases, or employee management. Invitation links expire after seven days and can only be used once.
+          {t('employees.storeAccessDescription')}
         </p>
       </div>
 
@@ -159,22 +161,22 @@ export default function EmployeeAccessPanel() {
       <form onSubmit={createInvitation} className="space-y-4 rounded-md border p-4">
         <div className="grid gap-3 md:grid-cols-[1fr_auto]">
           <Input
-            aria-label="Employee email"
+            aria-label={t('employees.employeeEmail')}
             type="email"
-            placeholder="Employee email"
+            placeholder={t('employees.employeeEmail')}
             value={inviteEmail}
             onChange={(event) => setInviteEmail(event.target.value)}
             required
           />
           <Button type="submit" disabled={inviting || !isOwner}>
-            {inviting ? 'Creating link...' : 'Create invitation'}
+            {inviting ? t('employees.creatingLink') : t('employees.createInvitation')}
           </Button>
         </div>
       </form>
 
       {invitationLink && (
         <div className="space-y-1">
-          <Label htmlFor="invitation-link">Share this one-time invitation link</Label>
+          <Label htmlFor="invitation-link">{t('employees.shareInvitationLink')}</Label>
           <Input
             id="invitation-link"
             readOnly
@@ -185,11 +187,11 @@ export default function EmployeeAccessPanel() {
       )}
 
       <section className="space-y-3">
-        <h3 className="font-semibold">Team members</h3>
+        <h3 className="font-semibold">{t('employees.teamMembers')}</h3>
         {loading ? (
-          <p className="text-sm text-muted-foreground">Loading team...</p>
+          <p className="text-sm text-muted-foreground">{t('employees.loadingTeam')}</p>
         ) : teamMembers.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No invited team accounts yet.</p>
+          <p className="text-sm text-muted-foreground">{t('employees.noTeamMembers')}</p>
         ) : teamMembers.map((member) => {
           return (
             <div key={member.user_id} className="space-y-3 rounded-md border p-3">
@@ -197,17 +199,17 @@ export default function EmployeeAccessPanel() {
                 <div>
                   <p className="font-medium">{member.full_name || member.email}</p>
                   <p className="text-xs text-muted-foreground">
-                    {member.email} · {member.role} · {member.status}
+                    {member.email} · {t(`employees.roles.${member.role}`)} · {t(`employees.memberStatuses.${member.status}`)}
                   </p>
                 </div>
                 <div className="flex gap-2">
                   {member.status === 'approved' ? (
                     <Button size="sm" variant="outline" onClick={() => void updateMember(member, 'suspended')}>
-                      Suspend
+                      {t('employees.suspend')}
                     </Button>
                   ) : (
                     <Button size="sm" onClick={() => void updateMember(member, 'approved')}>
-                      Reactivate
+                      {t('employees.reactivate')}
                     </Button>
                   )}
                 </div>
@@ -218,19 +220,19 @@ export default function EmployeeAccessPanel() {
       </section>
 
       <section className="space-y-3">
-        <h3 className="font-semibold">Pending invitations</h3>
+        <h3 className="font-semibold">{t('employees.pendingInvitations')}</h3>
         {invitations.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No pending invitations.</p>
+          <p className="text-sm text-muted-foreground">{t('employees.noPendingInvitations')}</p>
         ) : invitations.map((invitation) => (
           <div key={invitation.invitation_id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3">
             <div>
               <p className="font-medium">{invitation.email} · {invitation.role}</p>
               <p className="text-xs text-muted-foreground">
-                Expires {new Date(invitation.expires_at).toLocaleString()}
+                {t('employees.expires')} {new Date(invitation.expires_at).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US')}
               </p>
             </div>
             <Button size="sm" variant="outline" onClick={() => void revokeInvitation(invitation.invitation_id)}>
-              Revoke
+              {t('employees.revoke')}
             </Button>
           </div>
         ))}

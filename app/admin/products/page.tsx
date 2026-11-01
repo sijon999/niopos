@@ -29,6 +29,7 @@ import type { Product, Category, Brand, Unit, ProductVariant } from '@/types';
 import { toast } from 'sonner';
 import { Barcode } from '@/components/barcode';
 import { ImportCSVDialog } from '@/components/import-csv-dialog';
+import { useTranslation } from '@/hooks/use-translation';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -63,6 +64,7 @@ const emptyVariant: VariantRow = {
 };
 
 export default function ProductsPage() {
+  const { t, locale } = useTranslation();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
@@ -170,17 +172,17 @@ export default function ProductsPage() {
     const { data: storeId, error: storeError } = await supabase.rpc('get_my_store_id');
     if (storeError || !storeId) {
       setUploading(false);
-      toast.error('দোকানের তথ্য পাওয়া যায়নি');
+      toast.error(t('brands.storeMissing'));
       return;
     }
     const ext = file.name.split('.').pop();
     const fileName = `${storeId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
     const { error } = await supabase.storage.from('product-images').upload(fileName, file);
     setUploading(false);
-    if (error) { toast.error('ছবি আপলোড ব্যর্থ'); return; }
+    if (error) { toast.error(t('products.imageUploadFailed')); return; }
     const { data: urlData } = supabase.storage.from('product-images').getPublicUrl(fileName);
     setFormData((prev) => ({ ...prev, image_url: urlData.publicUrl }));
-    toast.success('ছবি আপলোড হয়েছে');
+    toast.success(t('products.imageUploaded'));
   };
 
   const openNew = () => {
@@ -245,11 +247,11 @@ export default function ProductsPage() {
   };
 
   const validateForm = (): string | null => {
-    if (!formData.name.trim()) return 'পণ্য নাম আবশ্যক';
-    if (!formData.selling_price || Number(formData.selling_price) < 0) return 'বিক্রয় মূল্য সঠিক নয়';
-    if (formData.cost_price && Number(formData.cost_price) < 0) return 'ক্রয় মূল্য নেতিবাচক হতে পারে না';
-    if (Number(formData.stock) < 0) return 'স্টক নেতিবাচক হতে পারে না';
-    if (!Number.isFinite(Number(formData.min_stock)) || Number(formData.min_stock) < 0) return 'অ্যালার্ট লিমিট সঠিক নয়';
+    if (!formData.name.trim()) return t('products.nameRequired');
+    if (!formData.selling_price || Number(formData.selling_price) < 0) return t('products.sellingPriceInvalid');
+    if (formData.cost_price && Number(formData.cost_price) < 0) return t('products.costPriceNegative');
+    if (Number(formData.stock) < 0) return t('products.stockNegative');
+    if (!Number.isFinite(Number(formData.min_stock)) || Number(formData.min_stock) < 0) return t('products.alertLimitInvalid');
     return null;
   };
 
@@ -260,11 +262,11 @@ export default function ProductsPage() {
     // Check uniqueness
     if (formData.barcode) {
       const { data: dup } = await supabase.from('products').select('id, name').eq('barcode', formData.barcode).neq('id', editingProduct?.id || '').maybeSingle();
-      if (dup) { toast.error(`বারকোড ইতিমধ্যে ব্যবহৃত: ${dup.name}`); return; }
+      if (dup) { toast.error(t('products.barcodeExistsFor', { name: dup.name })); return; }
     }
     if (formData.product_code) {
       const { data: dup } = await supabase.from('products').select('id, name').eq('product_code', formData.product_code).neq('id', editingProduct?.id || '').maybeSingle();
-      if (dup) { toast.error(`পণ্য কোড ইতিমধ্যে ব্যবহৃত: ${dup.name}`); return; }
+      if (dup) { toast.error(t('products.codeExistsFor', { name: dup.name })); return; }
     }
 
     setSaving(true);
@@ -300,13 +302,13 @@ export default function ProductsPage() {
 
     if (editingProduct) {
       const { error } = await supabase.from('products').update(data).eq('id', editingProduct.id);
-      if (error) { toast.error('আপডেট ব্যর্থ'); setSaving(false); return; }
-      toast.success('পণ্য সফলভাবে আপডেট হয়েছে');
+      if (error) { toast.error(t('common.updateFailed')); setSaving(false); return; }
+      toast.success(t('products.updateSuccess'));
     } else {
       const { data: newProd, error } = await supabase.from('products').insert(data).select().single();
-      if (error) { toast.error('তৈরি ব্যর্থ'); setSaving(false); return; }
+      if (error) { toast.error(t('common.createFailed')); setSaving(false); return; }
       productId = newProd.id;
-      toast.success('পণ্য সফলভাবে তৈরি হয়েছে');
+      toast.success(t('products.createSuccess'));
 
       // Log stock movement for opening stock
       if (Number(formData.stock) > 0) {
@@ -366,15 +368,15 @@ export default function ProductsPage() {
     if (!deleteTarget) return;
     // Soft delete
     const { error } = await supabase.from('products').update({ is_deleted: true, status: 'inactive' }).eq('id', deleteTarget.id);
-    if (error) { toast.error('মুছে ফেলা ব্যর্থ'); return; }
-    toast.success('পণ্য সফলভাবে মুছে ফেলা হয়েছে');
+    if (error) { toast.error(t('products.deleteFailed')); return; }
+    toast.success(t('products.deleteSuccess'));
     setDeleteTarget(null);
     loadData();
   };
 
   // Export functions
   const exportCSV = () => {
-    const headers = ['নাম', 'কোড', 'SKU', 'বারকোড', 'টাইপ', 'ব্র্যান্ড', 'ক্যাটাগরি', 'পরিমাণ', 'অ্যালার্ট লিমিট', 'ক্রয় মূল্য', 'বিক্রয় মূল্য'];
+    const headers = [t('common.name'), t('products.productCode'), t('products.sku'), t('products.barcode'), t('products.type'), t('products.brand'), t('products.category'), t('common.quantity'), t('products.alertLimit'), t('products.purchasePrice'), t('products.sellingPrice')];
     const rows = filtered.map((p) => [
       p.name, p.product_code || '', p.sku || '', p.barcode || '',
       p.product_type || 'simple', p.brands?.name || '', p.categories?.name || '',
@@ -387,11 +389,11 @@ export default function ProductsPage() {
     link.href = URL.createObjectURL(blob);
     link.download = 'products.csv';
     link.click();
-    toast.success('CSV ডাউনলোড হয়েছে');
+    toast.success(t('common.csvDownloaded'));
   };
 
   const exportExcel = () => {
-    const headers = ['নাম', 'কোড', 'SKU', 'বারকোড', 'টাইপ', 'ব্র্যান্ড', 'ক্যাটাগরি', 'পরিমাণ', 'অ্যালার্ট লিমিট', 'ক্রয় মূল্য', 'বিক্রয় মূল্য'];
+    const headers = [t('common.name'), t('products.productCode'), t('products.sku'), t('products.barcode'), t('products.type'), t('products.brand'), t('products.category'), t('common.quantity'), t('products.alertLimit'), t('products.purchasePrice'), t('products.sellingPrice')];
     const rows = filtered.map((p) => [
       p.name, p.product_code || '', p.sku || '', p.barcode || '',
       p.product_type || 'simple', p.brands?.name || '', p.categories?.name || '',
@@ -404,21 +406,22 @@ export default function ProductsPage() {
     link.href = URL.createObjectURL(blob);
     link.download = 'products.xls';
     link.click();
-    toast.success('Excel ডাউনলোড হয়েছে');
+    toast.success(t('products.excelDownloaded'));
   };
 
   const copyTable = () => {
-    const headers = ['নাম', 'কোড', 'টাইপ', 'ব্র্যান্ড', 'ক্যাটাগরি', 'পরিমাণ', 'অ্যালার্ট লিমিট'];
+    const headers = [t('common.name'), t('products.productCode'), t('products.type'), t('products.brand'), t('products.category'), t('common.quantity'), t('products.alertLimit')];
     const rows = filtered.map((p) => [p.name, p.product_code || '', p.product_type || 'simple', p.brands?.name || '', p.categories?.name || '', `${p.stock} ${p.unit}`, `${p.min_stock} ${p.unit}`]);
     const text = [headers.join('\t'), ...rows.map((r) => r.join('\t'))].join('\n');
     navigator.clipboard.writeText(text);
-    toast.success('টেবিল কপি হয়েছে');
+    toast.success(t('products.tableCopied'));
   };
 
   const printProducts = () => {
     const win = window.open('', '_blank', 'width=1000,height=700');
-    if (!win) { toast.error('পপআপ অনুমোদন করুন'); return; }
-    win.document.write(`<html><head><title>পণ্য তালিকা</title><style>body{font-family:sans-serif;padding:20px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #ddd;padding:6px;text-align:left}th{background:#f5f5f5}</style></head><body><h2>পণ্য তালিকা</h2><table><tr><th>ক্রম</th><th>নাম</th><th>কোড</th><th>টাইপ</th><th>ব্র্যান্ড</th><th>ক্যাটাগরি</th><th>পরিমাণ</th><th>অ্যালার্ট লিমিট</th></tr>${filtered.map((p, i) => `<tr><td>${i + 1}</td><td>${p.name}</td><td>${p.product_code || ''}</td><td>${p.product_type || 'simple'}</td><td>${p.brands?.name || ''}</td><td>${p.categories?.name || ''}</td><td>${p.stock} ${p.unit}</td><td>${p.min_stock} ${p.unit}</td></tr>`).join('')}</table></body></html>`);
+    if (!win) { toast.error(t('common.allowPopups')); return; }
+    const headers = [t('products.serial'), t('common.name'), t('products.productCode'), t('products.type'), t('products.brand'), t('products.category'), t('common.quantity'), t('products.alertLimit')];
+    win.document.write(`<html lang="${locale}"><head><title>${t('products.title')}</title><style>body{font-family:${locale === 'bn' ? "'Noto Sans Bengali',sans-serif" : 'sans-serif'};padding:20px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #ddd;padding:6px;text-align:left}th{background:#f5f5f5}</style></head><body><h2>${t('products.title')}</h2><table><tr>${headers.map((header) => `<th>${header}</th>`).join('')}</tr>${filtered.map((p, i) => `<tr><td>${i + 1}</td><td>${p.name}</td><td>${p.product_code || ''}</td><td>${p.product_type || 'simple'}</td><td>${p.brands?.name || ''}</td><td>${p.categories?.name || ''}</td><td>${p.stock} ${p.unit}</td><td>${p.min_stock} ${p.unit}</td></tr>`).join('')}</table></body></html>`);
     win.document.close();
     win.print();
   };
@@ -439,15 +442,15 @@ export default function ProductsPage() {
   };
 
   const handleBulkAction = async () => {
-    if (!bulkAction || selectedIds.size === 0) { toast.error('অ্যাকশন এবং পণ্য সিলেক্ট করুন'); return; }
+    if (!bulkAction || selectedIds.size === 0) { toast.error(t('products.selectActionAndProducts')); return; }
     const ids = Array.from(selectedIds);
 
     if (bulkAction === 'delete') {
       await supabase.from('products').update({ is_deleted: true, status: 'inactive' }).in('id', ids);
-      toast.success(`${ids.length} টি পণ্য মুছে ফেলা হয়েছে`);
+      toast.success(t('products.bulkDeleteSuccess', { count: ids.length }));
     } else if (bulkAction === 'export') {
       const selected = filtered.filter((p) => selectedIds.has(p.id));
-      const headers = ['নাম', 'কোড', 'SKU', 'বারকোড', 'ব্র্যান্ড', 'ক্যাটাগরি', 'পরিমাণ'];
+      const headers = [t('common.name'), t('products.productCode'), t('products.sku'), t('products.barcode'), t('products.brand'), t('products.category'), t('common.quantity')];
       const rows = selected.map((p) => [p.name, p.product_code || '', p.sku || '', p.barcode || '', p.brands?.name || '', p.categories?.name || '', `${p.stock} ${p.unit}`]);
       const csv = [headers, ...rows].map((r) => r.map((c) => `"${c}"`).join(',')).join('\n');
       const blob = new Blob([csv], { type: 'text/csv' });
@@ -455,7 +458,7 @@ export default function ProductsPage() {
       link.href = URL.createObjectURL(blob);
       link.download = 'selected-products.csv';
       link.click();
-      toast.success('সিলেক্টেড পণ্য এক্সপোর্ট হয়েছে');
+      toast.success(t('products.selectedExported'));
     }
 
     setSelectedIds(new Set());
@@ -474,9 +477,9 @@ export default function ProductsPage() {
   };
 
   const getStockBadge = (p: Product) => {
-    if (p.stock <= 0) return <Badge className="bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400">স্টক নেই</Badge>;
-    if (p.min_stock > 0 && p.stock <= p.min_stock) return <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">স্বল্প স্টক</Badge>;
-    return <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">ইন স্টক</Badge>;
+    if (p.stock <= 0) return <Badge className="bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400">{t('products.outOfStockAlert')}</Badge>;
+    if (p.min_stock > 0 && p.stock <= p.min_stock) return <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">{t('products.lowStockAlert')}</Badge>;
+    return <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">{t('products.inStock')}</Badge>;
   };
 
   return (
@@ -484,17 +487,17 @@ export default function ProductsPage() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h2 className="text-2xl font-bold font-heading">পণ্য তালিকা</h2>
-          <p className="text-sm text-muted-foreground">সর্বমোট পণ্য: {products.filter((p) => !p.is_deleted).length} টি</p>
+          <h2 className="text-2xl font-bold font-heading">{t('products.title')}</h2>
+          <p className="text-sm text-muted-foreground">{t('products.totalCount', { count: products.filter((p) => !p.is_deleted).length })}</p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <Button variant="outline" size="sm" onClick={copyTable}><Copy className="w-4 h-4 mr-2" /> কপি</Button>
+          <Button variant="outline" size="sm" onClick={copyTable}><Copy className="w-4 h-4 mr-2" /> {t('common.copy')}</Button>
           <Button variant="outline" size="sm" onClick={exportCSV}><Download className="w-4 h-4 mr-2" /> CSV</Button>
           <Button variant="outline" size="sm" onClick={exportExcel}><FileSpreadsheet className="w-4 h-4 mr-2" /> Excel</Button>
-          <Button variant="outline" size="sm" onClick={printProducts}><Printer className="w-4 h-4 mr-2" /> প্রিন্ট</Button>
-          <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}><Upload className="w-4 h-4 mr-2" /> Import CSV</Button>
+          <Button variant="outline" size="sm" onClick={printProducts}><Printer className="w-4 h-4 mr-2" /> {t('common.print')}</Button>
+          <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}><Upload className="w-4 h-4 mr-2" /> {t('products.importCsv')}</Button>
           <Button size="sm" onClick={openNew} className="bg-indigo-600 hover:bg-indigo-700">
-            <Plus className="w-4 h-4 mr-2" /> পণ্য যোগ করুন
+            <Plus className="w-4 h-4 mr-2" /> {t('products.addProduct')}
           </Button>
         </div>
       </div>
@@ -502,10 +505,10 @@ export default function ProductsPage() {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-4 max-w-md">
-          <TabsTrigger value="all">সকল পণ্য</TabsTrigger>
-          <TabsTrigger value="category">ক্যাটাগরি</TabsTrigger>
-          <TabsTrigger value="brand">ব্র্যান্ড</TabsTrigger>
-          <TabsTrigger value="unit">ইউনিট</TabsTrigger>
+          <TabsTrigger value="all">{t('products.allProducts')}</TabsTrigger>
+          <TabsTrigger value="category">{t('products.category')}</TabsTrigger>
+          <TabsTrigger value="brand">{t('products.brand')}</TabsTrigger>
+          <TabsTrigger value="unit">{t('products.unit')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="all" className="space-y-4 mt-4">
@@ -513,41 +516,41 @@ export default function ProductsPage() {
           <div className="flex gap-3 flex-wrap items-center">
             <div className="relative flex-1 min-w-[200px] max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input placeholder="নাম বা কোড দিয়ে খুঁজুন..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
+              <Input placeholder={t('products.searchProducts')} value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
             </div>
             <select value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 text-sm min-w-[160px]">
-              <option value="all">ব্র্যান্ড সিলেক্ট...</option>
+              <option value="all">{t('products.brandFilter')}</option>
               {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
             <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 text-sm min-w-[160px]">
-              <option value="all">ক্যাটাগরি সিলেক্ট...</option>
+              <option value="all">{t('products.categoryFilter')}</option>
               {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
             <select value={stockFilter} onChange={(e) => setStockFilter(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
-              <option value="all">সকল স্টক</option>
-              <option value="in">ইন স্টক</option>
-              <option value="low">স্বল্প স্টক</option>
-              <option value="out">স্টক নেই</option>
+              <option value="all">{t('products.allStock')}</option>
+              <option value="in">{t('products.inStock')}</option>
+              <option value="low">{t('products.lowStockAlert')}</option>
+              <option value="out">{t('products.outOfStockAlert')}</option>
             </select>
             <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
-              <option value="all">সকল টাইপ</option>
-              <option value="simple">সাধারণ পণ্য</option>
-              <option value="variant">ভ্যারিয়েন্ট পণ্য</option>
+              <option value="all">{t('products.allTypes')}</option>
+              <option value="simple">{t('products.simpleProduct')}</option>
+              <option value="variant">{t('products.variantProduct')}</option>
             </select>
-            <Button variant="outline" size="sm" onClick={resetFilters}><RotateCcw className="w-4 h-4 mr-2" /> রিসেট</Button>
+            <Button variant="outline" size="sm" onClick={resetFilters}><RotateCcw className="w-4 h-4 mr-2" /> {t('common.reset')}</Button>
           </div>
 
           {/* Bulk actions */}
           {selectedIds.size > 0 && (
             <div className="flex items-center gap-3 p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg">
-              <span className="text-sm font-medium">{selectedIds.size} টি পণ্য সিলেক্টেড</span>
+              <span className="text-sm font-medium">{t('products.selectedCount', { count: selectedIds.size })}</span>
               <select value={bulkAction} onChange={(e) => setBulkAction(e.target.value)} className="h-8 rounded-md border border-input bg-background px-2 text-sm">
-                <option value="">অ্যাকশন সিলেক্ট করুন</option>
-                <option value="delete">মুছে ফেলুন</option>
-                <option value="export">এক্সপোর্ট করুন</option>
+                <option value="">{t('products.selectAction')}</option>
+                <option value="delete">{t('products.bulkDelete')}</option>
+                <option value="export">{t('products.exportSelected')}</option>
               </select>
-              <Button size="sm" onClick={handleBulkAction} className="bg-indigo-600 hover:bg-indigo-700">প্রয়োগ করুন</Button>
-              <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>বাতিল</Button>
+              <Button size="sm" onClick={handleBulkAction} className="bg-indigo-600 hover:bg-indigo-700">{t('products.applyAction')}</Button>
+              <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>{t('common.cancel')}</Button>
             </div>
           )}
 
@@ -564,14 +567,14 @@ export default function ProductsPage() {
                           <Square className="w-4 h-4 text-muted-foreground" />}
                       </button>
                     </TableHead>
-                    <TableHead>ছবি ও নাম</TableHead>
-                    <TableHead>কোড</TableHead>
-                    <TableHead>টাইপ</TableHead>
-                    <TableHead>ব্র্যান্ড</TableHead>
-                    <TableHead>ক্যাটাগরি</TableHead>
-                    <TableHead>পরিমাণ</TableHead>
-                    <TableHead>অ্যালার্ট লিমিট</TableHead>
-                    <TableHead className="text-right">অ্যাকশন</TableHead>
+                    <TableHead>{t('products.imageAndName')}</TableHead>
+                    <TableHead>{t('products.productCode')}</TableHead>
+                    <TableHead>{t('products.type')}</TableHead>
+                    <TableHead>{t('products.brand')}</TableHead>
+                    <TableHead>{t('products.category')}</TableHead>
+                    <TableHead>{t('common.quantity')}</TableHead>
+                    <TableHead>{t('products.alertLimit')}</TableHead>
+                    <TableHead className="text-right">{t('common.actions')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -586,7 +589,7 @@ export default function ProductsPage() {
                       <TableCell colSpan={9}>
                         <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                           <Package className="w-12 h-12 mb-3 opacity-50" />
-                          <p>কোন পণ্য পাওয়া যায়নি</p>
+                          <p>{t('products.noProducts')}</p>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -617,7 +620,7 @@ export default function ProductsPage() {
                         <TableCell className="text-sm text-muted-foreground font-mono">{product.product_code || product.sku || '-'}</TableCell>
                         <TableCell>
                           <Badge variant="outline" className={product.product_type === 'variant' ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' : 'bg-slate-50 text-slate-600 dark:bg-slate-800 dark:text-slate-400'}>
-                            {product.product_type === 'variant' ? 'VARIANT' : 'SIMPLE'}
+                            {product.product_type === 'variant' ? t('products.variantProduct') : t('products.simpleProduct')}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-sm">{product.brands?.name || '-'}</TableCell>
@@ -631,9 +634,9 @@ export default function ProductsPage() {
                         <TableCell className="text-sm text-muted-foreground">{product.min_stock} {product.unit}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
-                            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setViewProduct(product)} title="দেখুন"><Eye className="w-4 h-4" /></Button>
-                            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(product)} title="সম্পাদনা"><Edit2 className="w-4 h-4" /></Button>
-                            <Button size="icon" variant="ghost" className="h-8 w-8 text-rose-600" onClick={() => setDeleteTarget(product)} title="মুছে ফেলুন"><Trash2 className="w-4 h-4" /></Button>
+                            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setViewProduct(product)} title={t('common.view')}><Eye className="w-4 h-4" /></Button>
+                            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(product)} title={t('common.edit')}><Edit2 className="w-4 h-4" /></Button>
+                            <Button size="icon" variant="ghost" className="h-8 w-8 text-rose-600" onClick={() => setDeleteTarget(product)} title={t('common.delete')}><Trash2 className="w-4 h-4" /></Button>
                           </div>
                         </TableCell>
                       </motion.tr>
@@ -647,13 +650,13 @@ export default function ProductsPage() {
           {/* Pagination */}
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">দেখাও</span>
+              <span className="text-sm text-muted-foreground">{t('common.show')}</span>
               <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="h-8 rounded-md border border-input bg-background px-2 text-sm">
                 {PAGE_SIZE_OPTIONS.map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
-              <span className="text-sm text-muted-foreground">এন্ট্রি</span>
+              <span className="text-sm text-muted-foreground">{t('common.entries')}</span>
             </div>
-            <p className="text-sm text-muted-foreground">মোট {filtered.length} টি পণ্য পাওয়া গেছে</p>
+            <p className="text-sm text-muted-foreground">{t('products.totalFound', { count: filtered.length })}</p>
             {totalPages > 1 && (
               <div className="flex items-center gap-1">
                 <Button variant="outline" size="icon" className="h-8 w-8" disabled={page === 0} onClick={() => setPage(page - 1)}><ChevronLeft className="w-4 h-4" /></Button>
@@ -672,8 +675,8 @@ export default function ProductsPage() {
         <TabsContent value="category">
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">ক্যাটাগরি ব্যবস্থাপনার জন্য নিচের পেজে যান</p>
-              <a href="/admin/categories" className="text-indigo-600 hover:underline text-sm font-medium">ক্যাটাগরি পেজে যান →</a>
+              <p className="text-sm text-muted-foreground">{t('products.manageCategoriesPrompt')}</p>
+              <a href="/admin/categories" className="text-indigo-600 hover:underline text-sm font-medium">{t('products.goToCategories')} →</a>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
               {categories.map((cat, i) => (
@@ -685,7 +688,7 @@ export default function ProductsPage() {
                       </div>
                       <div className="min-w-0">
                         <p className="font-medium text-sm line-clamp-1">{cat.name}</p>
-                        <p className="text-xs text-muted-foreground">{products.filter((p) => p.category_id === cat.id && !p.is_deleted).length} টি পণ্য</p>
+                        <p className="text-xs text-muted-foreground">{t('products.productCount', { count: products.filter((p) => p.category_id === cat.id && !p.is_deleted).length })}</p>
                       </div>
                     </div>
                   </Card>
@@ -697,8 +700,8 @@ export default function ProductsPage() {
         <TabsContent value="brand">
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">ব্র্যান্ড ব্যবস্থাপনার জন্য নিচের পেজে যান</p>
-              <a href="/admin/brands" className="text-indigo-600 hover:underline text-sm font-medium">ব্র্যান্ড পেজে যান →</a>
+              <p className="text-sm text-muted-foreground">{t('products.manageBrandsPrompt')}</p>
+              <a href="/admin/brands" className="text-indigo-600 hover:underline text-sm font-medium">{t('products.goToBrands')} →</a>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
               {brands.map((brand, i) => (
@@ -714,7 +717,7 @@ export default function ProductsPage() {
                       )}
                       <div className="min-w-0">
                         <p className="font-medium text-sm line-clamp-1">{brand.name}</p>
-                        <p className="text-xs text-muted-foreground">{products.filter((p) => p.brand_id === brand.id && !p.is_deleted).length} টি পণ্য</p>
+                        <p className="text-xs text-muted-foreground">{t('products.productCount', { count: products.filter((p) => p.brand_id === brand.id && !p.is_deleted).length })}</p>
                       </div>
                     </div>
                   </Card>
@@ -726,8 +729,8 @@ export default function ProductsPage() {
         <TabsContent value="unit">
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">ইউনিট ব্যবস্থাপনার জন্য নিচের পেজে যান</p>
-              <a href="/admin/units" className="text-indigo-600 hover:underline text-sm font-medium">ইউনিট পেজে যান →</a>
+              <p className="text-sm text-muted-foreground">{t('products.manageUnitsPrompt')}</p>
+              <a href="/admin/units" className="text-indigo-600 hover:underline text-sm font-medium">{t('products.goToUnits')} →</a>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
               {units.map((unit, i) => (
@@ -739,7 +742,7 @@ export default function ProductsPage() {
                       </div>
                       <div>
                         <p className="font-medium text-sm">{unit.name}</p>
-                        <p className="text-xs text-muted-foreground">{unit.short_name} · {products.filter((p) => p.unit === unit.short_name && !p.is_deleted).length} টি পণ্য</p>
+                        <p className="text-xs text-muted-foreground">{unit.short_name} · {t('products.productCount', { count: products.filter((p) => p.unit === unit.short_name && !p.is_deleted).length })}</p>
                       </div>
                     </div>
                   </Card>
@@ -754,24 +757,24 @@ export default function ProductsPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader>
-            <DialogTitle>{editingProduct ? 'পণ্য সম্পাদনা' : 'নতুন পণ্য যোগ করুন'}</DialogTitle>
+            <DialogTitle>{editingProduct ? t('products.editProduct') : t('products.addProduct')}</DialogTitle>
           </DialogHeader>
 
           <div className="flex-1 overflow-y-auto pr-2">
             <div className="space-y-6">
               {/* Basic Info */}
               <div className="space-y-4">
-                <h4 className="text-sm font-semibold text-indigo-600 dark:text-indigo-400">প্রাথমিক তথ্য</h4>
+                <h4 className="text-sm font-semibold text-indigo-600 dark:text-indigo-400">{t('products.basicInfo')}</h4>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2 col-span-2">
-                    <Label>পণ্যের নাম *</Label>
-                    <Input value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="পণ্যের নাম" />
+                    <Label>{t('products.productName')} *</Label>
+                    <Input value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder={t('products.productName')} />
                   </div>
                   <div className="space-y-2">
-                    <Label>পণ্য কোড</Label>
+                    <Label>{t('products.productCode')}</Label>
                     <div className="flex gap-2">
                       <Input value={formData.product_code} onChange={(e) => setFormData({ ...formData, product_code: e.target.value })} placeholder="1024" className="flex-1" />
-                      <Button type="button" variant="outline" size="sm" onClick={() => setFormData({ ...formData, product_code: generateProductCode() })}>অটো</Button>
+                      <Button type="button" variant="outline" size="sm" onClick={() => setFormData({ ...formData, product_code: generateProductCode() })}>{t('products.auto')}</Button>
                     </div>
                   </div>
                   <div className="space-y-2">
@@ -779,11 +782,11 @@ export default function ProductsPage() {
                     <Input value={formData.sku} onChange={(e) => setFormData({ ...formData, sku: e.target.value })} placeholder="SKU-001" />
                   </div>
                   <div className="space-y-2 col-span-2">
-                    <Label>বারকোড</Label>
+                    <Label>{t('products.barcode')}</Label>
                     <div className="flex gap-2">
                       <Input value={formData.barcode} onChange={(e) => setFormData({ ...formData, barcode: e.target.value })} placeholder="8901234500011" className="flex-1" />
                       <Button type="button" variant="outline" size="sm" onClick={() => setFormData({ ...formData, barcode: generateBarcode(), barcode_format: 'EAN13' })}>
-                        <BarcodeIcon className="w-4 h-4 mr-1" /> অটো
+                        <BarcodeIcon className="w-4 h-4 mr-1" /> {t('products.auto')}
                       </Button>
                       <select value={formData.barcode_format} onChange={(e) => setFormData({ ...formData, barcode_format: e.target.value })} className="h-9 rounded-md border border-input bg-background px-2 text-xs">
                         <option value="CODE128">Code 128</option>
@@ -794,37 +797,37 @@ export default function ProductsPage() {
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label>পণ্যের টাইপ</Label>
+                    <Label>{t('products.productType')}</Label>
                     <select value={formData.product_type} onChange={(e) => setFormData({ ...formData, product_type: e.target.value })} className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
-                      <option value="simple">সাধারণ পণ্য</option>
-                      <option value="variant">ভ্যারিয়েন্ট পণ্য</option>
+                      <option value="simple">{t('products.simpleProduct')}</option>
+                      <option value="variant">{t('products.variantProduct')}</option>
                     </select>
                   </div>
                   <div className="space-y-2">
-                    <Label>ব্র্যান্ড</Label>
+                    <Label>{t('products.brand')}</Label>
                     <select value={formData.brand_id} onChange={(e) => setFormData({ ...formData, brand_id: e.target.value })} className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
-                      <option value="">ব্র্যান্ড সিলেক্ট করুন</option>
+                      <option value="">{t('products.selectBrand')}</option>
                       {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
                     </select>
                   </div>
                   <div className="space-y-2">
-                    <Label>ক্যাটাগরি</Label>
+                    <Label>{t('products.category')}</Label>
                     <select value={formData.category_id} onChange={(e) => setFormData({ ...formData, category_id: e.target.value })} className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
-                      <option value="">ক্যাটাগরি সিলেক্ট করুন</option>
+                      <option value="">{t('products.selectCategory')}</option>
                       {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                   </div>
                   <div className="space-y-2">
-                    <Label>ইউনিট</Label>
+                    <Label>{t('products.unit')}</Label>
                     <select value={formData.unit} onChange={(e) => setFormData({ ...formData, unit: e.target.value })} className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
                       {units.map((u) => <option key={u.id} value={u.short_name}>{u.name} ({u.short_name})</option>)}
                     </select>
                   </div>
                   <div className="space-y-2 col-span-2">
-                    <Label>পণ্যের ছবি</Label>
+                    <Label>{t('products.image')}</Label>
                     {formData.image_url ? (
                       <div className="relative inline-block">
-                        <img src={formData.image_url} alt="Product" className="w-32 h-32 rounded-lg object-cover border" />
+                        <img src={formData.image_url} alt={t('products.productImage')} className="w-32 h-32 rounded-lg object-cover border" />
                         <button type="button" onClick={() => setFormData({ ...formData, image_url: null })} className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-rose-500 text-white flex items-center justify-center hover:bg-rose-600 shadow-md">
                           <X className="w-3.5 h-3.5" />
                         </button>
@@ -833,7 +836,7 @@ export default function ProductsPage() {
                       <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors">
                         <div className="flex flex-col items-center gap-2 text-muted-foreground">
                           <ImageIcon className="w-8 h-8" />
-                          <span className="text-sm">{uploading ? 'আপলোড হচ্ছে...' : 'ছবি আপলোড করুন'}</span>
+                          <span className="text-sm">{uploading ? t('products.uploading') : t('products.uploadImage')}</span>
                         </div>
                         <input type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleImageUpload(file); }} />
                       </label>
@@ -844,43 +847,43 @@ export default function ProductsPage() {
 
               {/* Pricing */}
               <div className="space-y-4">
-                <h4 className="text-sm font-semibold text-indigo-600 dark:text-indigo-400">মূল্য নির্ধারণ</h4>
+                <h4 className="text-sm font-semibold text-indigo-600 dark:text-indigo-400">{t('products.pricing')}</h4>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>ক্রয় মূল্য</Label>
+                    <Label>{t('products.purchasePrice')}</Label>
                     <Input type="number" step="0.01" min="0" value={formData.cost_price} onChange={(e) => setFormData({ ...formData, cost_price: e.target.value })} placeholder="৳500" />
                   </div>
                   <div className="space-y-2">
-                    <Label>বিক্রয় মূল্য *</Label>
+                    <Label>{t('products.sellingPrice')} *</Label>
                     <Input type="number" step="0.01" min="0" value={formData.selling_price} onChange={(e) => setFormData({ ...formData, selling_price: e.target.value })} placeholder="৳800" />
                   </div>
                   <div className="space-y-2">
-                    <Label>পাইকারি মূল্য</Label>
+                    <Label>{t('products.wholesalePrice')}</Label>
                     <Input type="number" step="0.01" min="0" value={formData.wholesale_price} onChange={(e) => setFormData({ ...formData, wholesale_price: e.target.value })} placeholder="৳700" />
                   </div>
                   <div className="space-y-2">
-                    <Label>ডিসকাউন্ট</Label>
+                    <Label>{t('products.discount')}</Label>
                     <Input type="number" step="0.01" min="0" value={formData.discount_price} onChange={(e) => setFormData({ ...formData, discount_price: e.target.value })} placeholder="৳600" />
                   </div>
                   <div className="space-y-2">
-                    <Label>ট্যাক্স/VAT (%)</Label>
+                    <Label>{t('products.taxVat')} (%)</Label>
                     <Input type="number" step="0.01" min="0" value={formData.tax_rate} onChange={(e) => setFormData({ ...formData, tax_rate: e.target.value })} placeholder="5" />
                   </div>
                   <div className="space-y-2">
-                    <Label>ট্যাক্স টাইপ</Label>
+                    <Label>{t('products.taxType')}</Label>
                     <select value={formData.tax_type} onChange={(e) => setFormData({ ...formData, tax_type: e.target.value })} className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
-                      <option value="exclusive">এক্সক্লুসিভ</option>
-                      <option value="inclusive">ইনক্লুসিভ</option>
+                      <option value="exclusive">{t('products.exclusive')}</option>
+                      <option value="inclusive">{t('products.inclusive')}</option>
                     </select>
                   </div>
                   {Number(formData.selling_price) > 0 && (
                     <div className="col-span-2 p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg flex gap-6">
                       <div>
-                        <p className="text-xs text-muted-foreground">লাভ</p>
+                        <p className="text-xs text-muted-foreground">{t('products.profitAmount')}</p>
                         <p className="text-lg font-bold text-indigo-600 dark:text-indigo-400">৳{profitAmount.toFixed(0)}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-muted-foreground">লাভ মার্জিন</p>
+                        <p className="text-xs text-muted-foreground">{t('products.profitMargin')}</p>
                         <p className="text-lg font-bold text-indigo-600 dark:text-indigo-400">{profitMargin}%</p>
                       </div>
                     </div>
@@ -890,23 +893,23 @@ export default function ProductsPage() {
 
               {/* Inventory */}
               <div className="space-y-4">
-                <h4 className="text-sm font-semibold text-indigo-600 dark:text-indigo-400">ইনভেন্টরি</h4>
+                <h4 className="text-sm font-semibold text-indigo-600 dark:text-indigo-400">{t('products.inventory')}</h4>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>প্রারম্ভিক স্টক</Label>
+                    <Label>{t('products.openingStock')}</Label>
                     <Input type="number" min="0" value={formData.stock} onChange={(e) => setFormData({ ...formData, stock: e.target.value })} placeholder="0" disabled={!!editingProduct} />
-                    {editingProduct && <p className="text-xs text-muted-foreground">স্টক পরিবর্তন ইনভেন্টরি বা ক্রয় থেকে স্বয়ংক্রিয়ভাবে হবে</p>}
+                    {editingProduct && <p className="text-xs text-muted-foreground">{t('products.stockManagedElsewhere')}</p>}
                   </div>
                   <div className="space-y-2">
-                    <Label>অ্যালার্ট/স্বল্প স্টক লিমিট</Label>
+                    <Label>{t('products.alertLimit')}</Label>
                     <Input type="number" min="0" value={formData.min_stock} onChange={(e) => setFormData({ ...formData, min_stock: e.target.value })} placeholder="0" />
                   </div>
                   <div className="space-y-2">
-                    <Label>ওয়্যারহাউস/স্টোর</Label>
-                    <Input value={formData.warehouse} onChange={(e) => setFormData({ ...formData, warehouse: e.target.value })} placeholder="মেইন স্টোর" />
+                    <Label>{t('products.warehouse')}</Label>
+                    <Input value={formData.warehouse} onChange={(e) => setFormData({ ...formData, warehouse: e.target.value })} placeholder={t('products.mainStore')} />
                   </div>
                   <div className="space-y-2">
-                    <Label>র্যাক/শেল্ফ</Label>
+                    <Label>{t('products.rackShelf')}</Label>
                     <Input value={formData.rack_shelf} onChange={(e) => setFormData({ ...formData, rack_shelf: e.target.value })} placeholder="A-01" />
                   </div>
                 </div>
@@ -916,33 +919,33 @@ export default function ProductsPage() {
               {formData.product_type === 'variant' && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-semibold text-indigo-600 dark:text-indigo-400">ভ্যারিয়েন্ট ব্যবস্থাপনা</h4>
-                    <Button type="button" variant="outline" size="sm" onClick={addVariant}><Plus className="w-4 h-4 mr-1" /> ভ্যারিয়েন্ট যোগ করুন</Button>
+                    <h4 className="text-sm font-semibold text-indigo-600 dark:text-indigo-400">{t('products.variantManagement')}</h4>
+                    <Button type="button" variant="outline" size="sm" onClick={addVariant}><Plus className="w-4 h-4 mr-1" /> {t('products.addVariant')}</Button>
                   </div>
                   {variants.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-lg">
                       <Layers className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                      <p className="text-sm">কোন ভ্যারিয়েন্ট যোগ করা হয়নি</p>
+                      <p className="text-sm">{t('products.noVariants')}</p>
                     </div>
                   ) : (
                     <div className="space-y-3 max-h-[300px] overflow-y-auto">
                       {variants.map((v, idx) => (
                         <div key={idx} className="p-3 border rounded-lg space-y-2 bg-muted/30">
                           <div className="flex items-center justify-between">
-                            <span className="text-xs font-medium">ভ্যারিয়েন্ট #{idx + 1}</span>
+                            <span className="text-xs font-medium">{t('products.variantNumber', { number: idx + 1 })}</span>
                             <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-rose-600" onClick={() => removeVariant(idx)}><Trash2 className="w-3.5 h-3.5" /></Button>
                           </div>
                           <div className="grid grid-cols-4 gap-2">
-                            <Input placeholder="সাইজ" value={v.size} onChange={(e) => updateVariant(idx, 'size', e.target.value)} className="text-sm h-8" />
-                            <Input placeholder="কালার" value={v.color} onChange={(e) => updateVariant(idx, 'color', e.target.value)} className="text-sm h-8" />
-                            <Input placeholder="ম্যাটেরিয়াল" value={v.material} onChange={(e) => updateVariant(idx, 'material', e.target.value)} className="text-sm h-8" />
-                            <Input placeholder="ডিজাইন" value={v.design} onChange={(e) => updateVariant(idx, 'design', e.target.value)} className="text-sm h-8" />
-                            <Input placeholder="ভ্যারিয়েন্ট SKU" value={v.variant_sku} onChange={(e) => updateVariant(idx, 'variant_sku', e.target.value)} className="text-sm h-8" />
-                            <Input placeholder="বারকোড" value={v.barcode} onChange={(e) => updateVariant(idx, 'barcode', e.target.value)} className="text-sm h-8" />
-                            <Input placeholder="ক্রয় মূল্য" type="number" min="0" value={v.purchase_price} onChange={(e) => updateVariant(idx, 'purchase_price', e.target.value)} className="text-sm h-8" />
-                            <Input placeholder="বিক্রয় মূল্য" type="number" min="0" value={v.selling_price} onChange={(e) => updateVariant(idx, 'selling_price', e.target.value)} className="text-sm h-8" />
-                            <Input placeholder="স্টক" type="number" min="0" value={v.stock_quantity} onChange={(e) => updateVariant(idx, 'stock_quantity', e.target.value)} className="text-sm h-8" />
-                            <Input placeholder="অ্যালার্ট লিমিট" type="number" min="0" value={v.alert_limit} onChange={(e) => updateVariant(idx, 'alert_limit', e.target.value)} className="text-sm h-8" />
+                            <Input placeholder={t('products.size')} value={v.size} onChange={(e) => updateVariant(idx, 'size', e.target.value)} className="text-sm h-8" />
+                            <Input placeholder={t('products.color')} value={v.color} onChange={(e) => updateVariant(idx, 'color', e.target.value)} className="text-sm h-8" />
+                            <Input placeholder={t('products.material')} value={v.material} onChange={(e) => updateVariant(idx, 'material', e.target.value)} className="text-sm h-8" />
+                            <Input placeholder={t('products.design')} value={v.design} onChange={(e) => updateVariant(idx, 'design', e.target.value)} className="text-sm h-8" />
+                            <Input placeholder={t('products.variantSku')} value={v.variant_sku} onChange={(e) => updateVariant(idx, 'variant_sku', e.target.value)} className="text-sm h-8" />
+                            <Input placeholder={t('products.barcode')} value={v.barcode} onChange={(e) => updateVariant(idx, 'barcode', e.target.value)} className="text-sm h-8" />
+                            <Input placeholder={t('products.purchasePrice')} type="number" min="0" value={v.purchase_price} onChange={(e) => updateVariant(idx, 'purchase_price', e.target.value)} className="text-sm h-8" />
+                            <Input placeholder={t('products.sellingPrice')} type="number" min="0" value={v.selling_price} onChange={(e) => updateVariant(idx, 'selling_price', e.target.value)} className="text-sm h-8" />
+                            <Input placeholder={t('products.stock')} type="number" min="0" value={v.stock_quantity} onChange={(e) => updateVariant(idx, 'stock_quantity', e.target.value)} className="text-sm h-8" />
+                            <Input placeholder={t('products.alertLimit')} type="number" min="0" value={v.alert_limit} onChange={(e) => updateVariant(idx, 'alert_limit', e.target.value)} className="text-sm h-8" />
                           </div>
                         </div>
                       ))}
@@ -953,34 +956,34 @@ export default function ProductsPage() {
 
               {/* Description */}
               <div className="space-y-4">
-                <h4 className="text-sm font-semibold text-indigo-600 dark:text-indigo-400">বর্ণনা</h4>
+                <h4 className="text-sm font-semibold text-indigo-600 dark:text-indigo-400">{t('common.description')}</h4>
                 <div className="space-y-2">
-                  <Label>সংক্ষিপ্ত বর্ণনা</Label>
-                  <Input value={formData.short_description} onChange={(e) => setFormData({ ...formData, short_description: e.target.value })} placeholder="সংক্ষিপ্ত বর্ণনা" />
+                  <Label>{t('products.shortDescription')}</Label>
+                  <Input value={formData.short_description} onChange={(e) => setFormData({ ...formData, short_description: e.target.value })} placeholder={t('products.shortDescription')} />
                 </div>
                 <div className="space-y-2">
-                  <Label>সম্পূর্ণ বর্ণনা</Label>
-                  <textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder="সম্পূর্ণ বর্ণনা" className="w-full min-h-[80px] rounded-md border border-input bg-background px-3 py-2 text-sm" />
+                  <Label>{t('products.fullDescription')}</Label>
+                  <textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder={t('products.fullDescription')} className="w-full min-h-[80px] rounded-md border border-input bg-background px-3 py-2 text-sm" />
                 </div>
                 <div className="space-y-2">
-                  <Label>পণ্য নোট</Label>
-                  <Input value={formData.product_notes} onChange={(e) => setFormData({ ...formData, product_notes: e.target.value })} placeholder="অভ্যন্তরীণ নোট" />
+                  <Label>{t('products.productNotes')}</Label>
+                  <Input value={formData.product_notes} onChange={(e) => setFormData({ ...formData, product_notes: e.target.value })} placeholder={t('products.internalNotes')} />
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Label>স্ট্যাটাস</Label>
+                <Label>{t('common.status')}</Label>
                 <select value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value })} className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
-                  <option value="active">সক্রিয়</option>
-                  <option value="inactive">নিষ্ক্রিয়</option>
+                  <option value="active">{t('common.active')}</option>
+                  <option value="inactive">{t('common.inactive')}</option>
                 </select>
               </div>
             </div>
           </div>
 
           <DialogFooter className="mt-4 border-t pt-4">
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>বাতিল</Button>
-            <Button onClick={handleSave} disabled={saving} className="bg-indigo-600 hover:bg-indigo-700">{saving ? 'সংরক্ষণ হচ্ছে...' : editingProduct ? 'আপডেট' : 'তৈরি করুন'}</Button>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>{t('common.cancel')}</Button>
+            <Button onClick={handleSave} disabled={saving} className="bg-indigo-600 hover:bg-indigo-700">{saving ? t('common.saving') : editingProduct ? t('common.update') : t('common.create')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -989,12 +992,12 @@ export default function ProductsPage() {
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>আপনি কি এই পণ্যটি মুছে ফেলতে চান?</AlertDialogTitle>
-            <AlertDialogDescription>এই পণ্যটি মুছে ফেললে এর সাথে সম্পর্কিত বিক্রয় রেকর্ড অক্ষুণ্ণ থাকবে, তবে পণ্যটি তালিকা থেকে সরে যাবে।</AlertDialogDescription>
+            <AlertDialogTitle>{t('products.deleteConfirm')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('products.deleteWarning')}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>বাতিল</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-rose-600 hover:bg-rose-700">মুছে ফেলুন</AlertDialogAction>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-rose-600 hover:bg-rose-700">{t('common.delete')}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -1002,7 +1005,7 @@ export default function ProductsPage() {
       {/* Product details view */}
       <Dialog open={!!viewProduct} onOpenChange={(open) => !open && setViewProduct(null)}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>পণ্যের বিস্তারিত</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{t('products.productDetails')}</DialogTitle></DialogHeader>
           {viewProduct && (
             <div className="space-y-4">
               <div className="flex items-start gap-4">
@@ -1011,21 +1014,21 @@ export default function ProductsPage() {
                 </div>
                 <div className="flex-1">
                   <h3 className="font-semibold text-lg">{viewProduct.name}</h3>
-                  <p className="text-sm text-muted-foreground">{viewProduct.brands?.name || 'কোন ব্র্যান্ড নেই'} · {viewProduct.categories?.name || 'কোন ক্যাটাগরি নেই'}</p>
+                  <p className="text-sm text-muted-foreground">{viewProduct.brands?.name || t('products.noBrand')} · {viewProduct.categories?.name || t('products.noCategory')}</p>
                   <div className="flex gap-2 mt-2">
-                    <Badge variant="outline">কোড: {viewProduct.product_code || 'N/A'}</Badge>
+                    <Badge variant="outline">{t('products.productCode')}: {viewProduct.product_code || 'N/A'}</Badge>
                     <Badge variant="outline">SKU: {viewProduct.sku || 'N/A'}</Badge>
-                    <Badge variant="outline">টাইপ: {viewProduct.product_type === 'variant' ? 'ভ্যারিয়েন্ট' : 'সাধারণ'}</Badge>
+                    <Badge variant="outline">{t('products.type')}: {viewProduct.product_type === 'variant' ? t('products.variantProduct') : t('products.simpleProduct')}</Badge>
                   </div>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 bg-muted/50 rounded-lg"><p className="text-xs text-muted-foreground">ক্রয় মূল্য</p><p className="font-bold">৳{viewProduct.cost_price}</p></div>
-                <div className="p-3 bg-muted/50 rounded-lg"><p className="text-xs text-muted-foreground">বিক্রয় মূল্য</p><p className="font-bold">৳{viewProduct.selling_price}</p></div>
-                <div className="p-3 bg-muted/50 rounded-lg"><p className="text-xs text-muted-foreground">পাইকারি মূল্য</p><p className="font-bold">৳{viewProduct.wholesale_price || 0}</p></div>
-                <div className="p-3 bg-muted/50 rounded-lg"><p className="text-xs text-muted-foreground">বর্তমান স্টক</p><p className="font-bold">{viewProduct.stock} {viewProduct.unit}</p></div>
-                <div className="p-3 bg-muted/50 rounded-lg"><p className="text-xs text-muted-foreground">অ্যালার্ট লিমিট</p><p className="font-bold">{viewProduct.min_stock} {viewProduct.unit}</p></div>
-                <div className="p-3 bg-muted/50 rounded-lg"><p className="text-xs text-muted-foreground">লাভ</p><p className="font-bold text-indigo-600 dark:text-indigo-400">৳{(viewProduct.selling_price - viewProduct.cost_price).toFixed(0)}</p></div>
+                <div className="p-3 bg-muted/50 rounded-lg"><p className="text-xs text-muted-foreground">{t('products.purchasePrice')}</p><p className="font-bold">৳{viewProduct.cost_price}</p></div>
+                <div className="p-3 bg-muted/50 rounded-lg"><p className="text-xs text-muted-foreground">{t('products.sellingPrice')}</p><p className="font-bold">৳{viewProduct.selling_price}</p></div>
+                <div className="p-3 bg-muted/50 rounded-lg"><p className="text-xs text-muted-foreground">{t('products.wholesalePrice')}</p><p className="font-bold">৳{viewProduct.wholesale_price || 0}</p></div>
+                <div className="p-3 bg-muted/50 rounded-lg"><p className="text-xs text-muted-foreground">{t('products.currentStock')}</p><p className="font-bold">{viewProduct.stock} {viewProduct.unit}</p></div>
+                <div className="p-3 bg-muted/50 rounded-lg"><p className="text-xs text-muted-foreground">{t('products.alertLimit')}</p><p className="font-bold">{viewProduct.min_stock} {viewProduct.unit}</p></div>
+                <div className="p-3 bg-muted/50 rounded-lg"><p className="text-xs text-muted-foreground">{t('products.profitAmount')}</p><p className="font-bold text-indigo-600 dark:text-indigo-400">৳{(viewProduct.selling_price - viewProduct.cost_price).toFixed(0)}</p></div>
               </div>
               {viewProduct.barcode && (
                 <div className="p-4 bg-white rounded-lg border flex flex-col items-center gap-2">
@@ -1035,22 +1038,22 @@ export default function ProductsPage() {
               )}
               {viewProduct.product_variants && viewProduct.product_variants.length > 0 && (
                 <div className="space-y-2">
-                  <h4 className="text-sm font-semibold">ভ্যারিয়েন্টস</h4>
+                  <h4 className="text-sm font-semibold">{t('products.variants')}</h4>
                   <div className="space-y-1">
                     {viewProduct.product_variants.map((v) => (
                       <div key={v.id} className="flex items-center gap-3 p-2 bg-muted/30 rounded-lg text-sm">
                         <span className="font-medium">{v.size || ''} {v.color || ''}</span>
-                        <span className="text-muted-foreground">স্টক: {v.stock_quantity}</span>
+                        <span className="text-muted-foreground">{t('products.stock')}: {v.stock_quantity}</span>
                         <span>৳{v.selling_price}</span>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
-              {viewProduct.description && <div><p className="text-xs text-muted-foreground mb-1">বর্ণনা</p><p className="text-sm">{viewProduct.description}</p></div>}
+              {viewProduct.description && <div><p className="text-xs text-muted-foreground mb-1">{t('common.description')}</p><p className="text-sm">{viewProduct.description}</p></div>}
               <div className="flex gap-2">
-                <Button variant="outline" className="flex-1" onClick={() => { setViewProduct(null); openEdit(viewProduct); }}><Edit2 className="w-4 h-4 mr-2" /> সম্পাদনা</Button>
-                <Button variant="outline" onClick={() => setViewProduct(null)}>বন্ধ করুন</Button>
+                <Button variant="outline" className="flex-1" onClick={() => { setViewProduct(null); openEdit(viewProduct); }}><Edit2 className="w-4 h-4 mr-2" /> {t('common.edit')}</Button>
+                <Button variant="outline" onClick={() => setViewProduct(null)}>{t('common.close')}</Button>
               </div>
             </div>
           )}

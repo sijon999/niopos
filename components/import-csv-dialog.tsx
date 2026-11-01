@@ -21,6 +21,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import type { Category, Brand, Unit, Product } from '@/types';
+import { useTranslation } from '@/hooks/use-translation';
 import {
   parseCSV, autoMapColumns, applyMapping, validateRows,
   generateTemplateCSV, generateErrorReportCSV, downloadFile,
@@ -44,6 +45,7 @@ type Step = 'upload' | 'mapping' | 'preview' | 'importing' | 'result';
 export function ImportCSVDialog({
   open, onOpenChange, categories, brands, units, existingProducts, onComplete,
 }: Props) {
+  const { t } = useTranslation();
   const [step, setStep] = useState<Step>('upload');
   const [fileName, setFileName] = useState('');
   const [headers, setHeaders] = useState<string[]>([]);
@@ -55,6 +57,29 @@ export function ImportCSVDialog({
   const [progress, setProgress] = useState<ImportProgress>({ total: 0, processed: 0, imported: 0, updated: 0, skipped: 0, failed: 0 });
   const [errorRows, setErrorRows] = useState<Array<{ row: number; name: string; code: string; error: string }>>([]);
   const fileRef = useRef<HTMLInputElement>(null);
+  const fieldLabelKeys: Record<ImportField, string> = {
+    name: 'products.productName',
+    product_code: 'products.productCode',
+    barcode: 'products.barcode',
+    sku: 'products.sku',
+    product_type: 'products.productType',
+    brand: 'products.brand',
+    category: 'products.category',
+    unit: 'products.unit',
+    cost_price: 'products.purchasePrice',
+    selling_price: 'products.sellingPrice',
+    wholesale_price: 'products.wholesalePrice',
+    stock: 'products.stock',
+    min_stock: 'products.minStock',
+    description: 'common.description',
+    status: 'common.status',
+    short_description: 'products.shortDescription',
+    warehouse: 'products.warehouse',
+    rack_shelf: 'products.rackShelf',
+    tax_rate: 'products.taxVat',
+    discount_price: 'products.discount',
+  };
+  const fieldLabel = (field: ImportField) => t(fieldLabelKeys[field]);
 
   const reset = useCallback(() => {
     setStep('upload');
@@ -76,20 +101,20 @@ export function ImportCSVDialog({
 
   const handleFileSelect = (file: File) => {
     if (!file.name.toLowerCase().endsWith('.csv')) {
-      toast.error('Please select a CSV file');
+      toast.error(t('csvImport.selectCsv'));
       return;
     }
     if (file.size > 10 * 1024 * 1024) {
-      toast.error('File too large (max 10MB)');
+      toast.error(t('csvImport.fileTooLarge'));
       return;
     }
     setFileName(file.name);
     const reader = new FileReader();
     reader.onload = (e) => {
       const text = e.target?.result as string;
-      if (!text) { toast.error('Could not read file'); return; }
+      if (!text) { toast.error(t('csvImport.readFailed')); return; }
       const { headers: hdrs, rows } = parseCSV(text);
-      if (hdrs.length === 0) { toast.error('CSV file appears empty'); return; }
+      if (hdrs.length === 0) { toast.error(t('csvImport.emptyFile')); return; }
       setHeaders(hdrs);
       setRawRows(rows);
       const autoMapping = autoMapColumns(hdrs);
@@ -135,23 +160,33 @@ export function ImportCSVDialog({
   };
 
   const downloadTemplate = () => {
-    downloadFile(generateTemplateCSV(), 'product-import-template.csv', 'text/csv;charset=utf-8');
-    toast.success('Template downloaded');
+    downloadFile(generateTemplateCSV(FIELD_DEFINITIONS.map((field) => fieldLabel(field.key))), 'product-import-template.csv', 'text/csv;charset=utf-8');
+    toast.success(t('csvImport.templateDownloaded'));
   };
 
   const downloadErrors = () => {
     if (!validation) return;
     downloadFile(
-      generateErrorReportCSV(validation.errors, validation.duplicates),
+      generateErrorReportCSV(
+        validation.errors.map((error) => ({ ...error, message: t(error.message) })),
+        validation.duplicates.map((duplicate) => ({ ...duplicate, reason: t(duplicate.reason) })),
+        [
+          t('csvImport.errorReportHeaders.row'),
+          t('products.productName'),
+          t('products.productCode'),
+          t('csvImport.errorReportHeaders.type'),
+          t('csvImport.errorReportHeaders.reason'),
+        ]
+      ),
       'import-error-report.csv',
       'text/csv;charset=utf-8'
     );
-    toast.success('Error report downloaded');
+    toast.success(t('csvImport.errorReportDownloaded'));
   };
 
   const runImport = async () => {
     if (!validation || validation.validRows.length === 0) {
-      toast.error('No valid rows to import');
+      toast.error(t('csvImport.noValidRows'));
       return;
     }
     setStep('importing');
@@ -237,7 +272,9 @@ export function ImportCSVDialog({
     setErrorRows(failedRows);
     setStep('result');
     if (imported > 0 || updated > 0) {
-      toast.success(`Imported ${imported} products${updated > 0 ? `, updated ${updated}` : ''}`);
+      toast.success(updated > 0
+        ? t('csvImport.importSuccessWithUpdates', { imported, updated })
+        : t('csvImport.importSuccess', { imported }));
     }
   };
 
@@ -250,7 +287,7 @@ export function ImportCSVDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileSpreadsheet className="w-5 h-5 text-indigo-600" />
-            Import Products from CSV
+            {t('csvImport.title')}
           </DialogTitle>
         </DialogHeader>
 
@@ -258,14 +295,14 @@ export function ImportCSVDialog({
           <div className="space-y-4">
             {/* Instructions */}
             <div className="text-sm text-muted-foreground bg-muted/50 rounded-lg p-3">
-              Upload a CSV file containing your product information. Make sure the column names match the template.
+              {t('csvImport.instructions')}
             </div>
 
             {/* Step: Upload */}
             {step === 'upload' && (
               <div className="space-y-4">
                 <Button variant="outline" onClick={downloadTemplate} className="w-full border-dashed">
-                  <Download className="w-4 h-4 mr-2" /> Download CSV Template
+                  <Download className="w-4 h-4 mr-2" /> {t('csvImport.downloadTemplate')}
                 </Button>
                 <Separator />
                 <div
@@ -273,8 +310,8 @@ export function ImportCSVDialog({
                   className="border-2 border-dashed rounded-lg p-10 text-center cursor-pointer hover:bg-muted/50 transition-colors"
                 >
                   <Upload className="w-12 h-12 mx-auto mb-3 text-muted-foreground" />
-                  <p className="font-medium">Choose CSV File</p>
-                  <p className="text-sm text-muted-foreground mt-1">Click to browse or drag a .csv file here</p>
+                  <p className="font-medium">{t('csvImport.chooseFile')}</p>
+                  <p className="text-sm text-muted-foreground mt-1">{t('csvImport.browseOrDrop')}</p>
                   <input
                     ref={fileRef}
                     type="file"
@@ -291,17 +328,17 @@ export function ImportCSVDialog({
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 text-amber-500" />
-                  <p className="text-sm font-medium">Review Column Mapping</p>
+                  <p className="text-sm font-medium">{t('csvImport.reviewMapping')}</p>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Some CSV columns could not be automatically matched. Please verify the mapping below.
+                  {t('csvImport.mappingHelp')}
                 </p>
                 <div className="border rounded-lg overflow-hidden">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="text-xs">CSV Column</TableHead>
-                        <TableHead className="text-xs">Application Field</TableHead>
+                        <TableHead className="text-xs">{t('csvImport.csvColumn')}</TableHead>
+                        <TableHead className="text-xs">{t('csvImport.applicationField')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -314,9 +351,9 @@ export function ImportCSVDialog({
                               onChange={(e) => handleMappingChange(idx, e.target.value)}
                               className="h-8 rounded-md border border-input bg-background px-2 text-sm w-full"
                             >
-                              <option value="">-- Skip --</option>
+                              <option value="">{t('csvImport.skip')}</option>
                               {FIELD_DEFINITIONS.map((f) => (
-                                <option key={f.key} value={f.key}>{f.label}{f.required ? ' *' : ''}</option>
+                                <option key={f.key} value={f.key}>{fieldLabel(f.key)}{f.required ? ' *' : ''}</option>
                               ))}
                             </select>
                           </TableCell>
@@ -326,7 +363,7 @@ export function ImportCSVDialog({
                   </Table>
                 </div>
                 <Button onClick={() => setStep('preview')} className="w-full bg-indigo-600 hover:bg-indigo-700">
-                  Continue to Preview
+                  {t('csvImport.continuePreview')}
                 </Button>
               </div>
             )}
@@ -338,7 +375,7 @@ export function ImportCSVDialog({
                 <div className="flex items-center gap-2 text-sm">
                   <FileText className="w-4 h-4 text-muted-foreground" />
                   <span className="font-medium">{fileName}</span>
-                  <Badge variant="outline">{validation.totalRows} rows</Badge>
+                  <Badge variant="outline">{t('csvImport.rowCount', { count: validation.totalRows })}</Badge>
                 </div>
 
                 {/* Validation summary */}
@@ -346,21 +383,21 @@ export function ImportCSVDialog({
                   <div className="rounded-lg border p-3 bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800">
                     <div className="flex items-center gap-2">
                       <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      <span className="text-sm font-medium">Valid Rows</span>
+                      <span className="text-sm font-medium">{t('csvImport.validRows')}</span>
                     </div>
                     <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{validation.validRows.length}</p>
                   </div>
                   <div className="rounded-lg border p-3 bg-rose-50 dark:bg-rose-900/10 border-rose-200 dark:border-rose-800">
                     <div className="flex items-center gap-2">
                       <XCircle className="w-4 h-4 text-rose-600" />
-                      <span className="text-sm font-medium">Invalid Rows</span>
+                      <span className="text-sm font-medium">{t('csvImport.invalidRows')}</span>
                     </div>
                     <p className="text-2xl font-bold text-rose-600 dark:text-rose-400">{validation.errors.length}</p>
                   </div>
                   <div className="rounded-lg border p-3 bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800">
                     <div className="flex items-center gap-2">
                       <AlertTriangle className="w-4 h-4 text-amber-600" />
-                      <span className="text-sm font-medium">Duplicates</span>
+                      <span className="text-sm font-medium">{t('csvImport.duplicates')}</span>
                     </div>
                     <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{validation.duplicates.length}</p>
                   </div>
@@ -368,12 +405,12 @@ export function ImportCSVDialog({
 
                 {/* Import mode */}
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Import Behavior</Label>
+                  <Label className="text-sm font-medium">{t('csvImport.importBehavior')}</Label>
                   <div className="flex gap-2 flex-wrap">
                     {([
-                      { key: 'skip', label: 'Skip duplicates' },
-                      { key: 'update', label: 'Update existing products' },
-                      { key: 'stop', label: 'Stop on duplicate' },
+                      { key: 'skip', label: t('csvImport.skipDuplicates') },
+                      { key: 'update', label: t('csvImport.updateExisting') },
+                      { key: 'stop', label: t('csvImport.stopOnDuplicate') },
                     ] as const).map((opt) => (
                       <button
                         key={opt.key}
@@ -392,14 +429,14 @@ export function ImportCSVDialog({
                     <TableHeader>
                       <TableRow>
                         <TableHead className="text-xs w-10">#</TableHead>
-                        <TableHead className="text-xs">Product Name</TableHead>
-                        <TableHead className="text-xs">Code</TableHead>
-                        <TableHead className="text-xs">Barcode</TableHead>
-                        <TableHead className="text-xs">Category</TableHead>
-                        <TableHead className="text-xs">Unit</TableHead>
-                        <TableHead className="text-xs text-right">Purchase</TableHead>
-                        <TableHead className="text-xs text-right">Selling</TableHead>
-                        <TableHead className="text-xs text-right">Stock</TableHead>
+                        <TableHead className="text-xs">{t('products.productName')}</TableHead>
+                        <TableHead className="text-xs">{t('products.productCode')}</TableHead>
+                        <TableHead className="text-xs">{t('products.barcode')}</TableHead>
+                        <TableHead className="text-xs">{t('products.category')}</TableHead>
+                        <TableHead className="text-xs">{t('products.unit')}</TableHead>
+                        <TableHead className="text-xs text-right">{t('products.purchasePrice')}</TableHead>
+                        <TableHead className="text-xs text-right">{t('products.sellingPrice')}</TableHead>
+                        <TableHead className="text-xs text-right">{t('products.stock')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -420,22 +457,22 @@ export function ImportCSVDialog({
                   </Table>
                 </div>
                 {validation.totalRows > 15 && (
-                  <p className="text-xs text-muted-foreground text-center">Showing first 15 of {validation.totalRows} rows</p>
+                  <p className="text-xs text-muted-foreground text-center">{t('csvImport.showingRows', { count: validation.totalRows })}</p>
                 )}
 
                 {/* Errors list */}
                 {validation.errors.length > 0 && (
                   <div className="space-y-2">
-                    <p className="text-sm font-medium text-rose-600">Validation Errors ({validation.errors.length})</p>
+                    <p className="text-sm font-medium text-rose-600">{t('csvImport.validationErrors', { count: validation.errors.length })}</p>
                     <ScrollArea className="h-32 border rounded-lg">
                       <div className="p-2 space-y-1">
                         {validation.errors.slice(0, 50).map((err, i) => (
                           <div key={i} className="text-xs flex items-center gap-2 text-rose-600 dark:text-rose-400">
-                            <span className="font-mono">Row {err.row}</span>
-                            <span>{err.message}</span>
+                            <span className="font-mono">{t('csvImport.rowNumber', { row: err.row })}</span>
+                            <span>{t(err.message)}</span>
                           </div>
                         ))}
-                        {validation.errors.length > 50 && <p className="text-xs text-muted-foreground">...and {validation.errors.length - 50} more</p>}
+                        {validation.errors.length > 50 && <p className="text-xs text-muted-foreground">{t('csvImport.moreErrors', { count: validation.errors.length - 50 })}</p>}
                       </div>
                     </ScrollArea>
                   </div>
@@ -444,14 +481,14 @@ export function ImportCSVDialog({
                 {/* Duplicates list */}
                 {validation.duplicates.length > 0 && (
                   <div className="space-y-2">
-                    <p className="text-sm font-medium text-amber-600">Duplicates ({validation.duplicates.length})</p>
+                    <p className="text-sm font-medium text-amber-600">{t('csvImport.duplicatesCount', { count: validation.duplicates.length })}</p>
                     <ScrollArea className="h-32 border rounded-lg">
                       <div className="p-2 space-y-1">
                         {validation.duplicates.slice(0, 50).map((dup, i) => (
                           <div key={i} className="text-xs flex items-center gap-2 text-amber-600 dark:text-amber-400">
-                            <span className="font-mono">Row {dup.row}</span>
+                            <span className="font-mono">{t('csvImport.rowNumber', { row: dup.row })}</span>
                             <span>{dup.name}</span>
-                            <span className="text-muted-foreground">- {dup.reason}</span>
+                            <span className="text-muted-foreground">- {t(dup.reason)}</span>
                           </div>
                         ))}
                       </div>
@@ -466,7 +503,7 @@ export function ImportCSVDialog({
               <div className="space-y-6 py-8">
                 <div className="text-center">
                   <Loader2 className="w-12 h-12 mx-auto mb-3 text-indigo-600 animate-spin" />
-                  <p className="font-medium">Importing products...</p>
+                  <p className="font-medium">{t('csvImport.importing')}</p>
                 </div>
                 <div className="space-y-2 max-w-md mx-auto">
                   <Progress value={progress.total > 0 ? (progress.processed / progress.total) * 100 : 0} className="h-3" />
@@ -476,19 +513,19 @@ export function ImportCSVDialog({
                   </div>
                   <div className="grid grid-cols-4 gap-2 mt-4">
                     <div className="text-center rounded-lg border p-2">
-                      <p className="text-xs text-muted-foreground">Imported</p>
+                      <p className="text-xs text-muted-foreground">{t('csvImport.imported')}</p>
                       <p className="font-bold text-emerald-600">{progress.imported}</p>
                     </div>
                     <div className="text-center rounded-lg border p-2">
-                      <p className="text-xs text-muted-foreground">Updated</p>
+                      <p className="text-xs text-muted-foreground">{t('csvImport.updated')}</p>
                       <p className="font-bold text-indigo-600">{progress.updated}</p>
                     </div>
                     <div className="text-center rounded-lg border p-2">
-                      <p className="text-xs text-muted-foreground">Skipped</p>
+                      <p className="text-xs text-muted-foreground">{t('csvImport.skipped')}</p>
                       <p className="font-bold text-amber-600">{progress.skipped}</p>
                     </div>
                     <div className="text-center rounded-lg border p-2">
-                      <p className="text-xs text-muted-foreground">Failed</p>
+                      <p className="text-xs text-muted-foreground">{t('csvImport.failed')}</p>
                       <p className="font-bold text-rose-600">{progress.failed}</p>
                     </div>
                   </div>
@@ -501,35 +538,35 @@ export function ImportCSVDialog({
               <div className="space-y-4">
                 <div className="text-center py-4">
                   <CheckCircle2 className="w-16 h-16 mx-auto mb-3 text-emerald-500" />
-                  <p className="text-lg font-bold">Import Completed</p>
+                  <p className="text-lg font-bold">{t('csvImport.completed')}</p>
                 </div>
                 <div className="grid grid-cols-4 gap-3 max-w-md mx-auto">
                   <div className="rounded-lg border p-3 text-center">
-                    <p className="text-xs text-muted-foreground">Total Rows</p>
+                    <p className="text-xs text-muted-foreground">{t('csvImport.totalRows')}</p>
                     <p className="text-xl font-bold">{progress.total}</p>
                   </div>
                   <div className="rounded-lg border p-3 text-center bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800">
-                    <p className="text-xs text-muted-foreground">Imported</p>
+                    <p className="text-xs text-muted-foreground">{t('csvImport.imported')}</p>
                     <p className="text-xl font-bold text-emerald-600">{progress.imported}</p>
                   </div>
                   <div className="rounded-lg border p-3 text-center bg-indigo-50 dark:bg-indigo-900/10 border-indigo-200 dark:border-indigo-800">
-                    <p className="text-xs text-muted-foreground">Updated</p>
+                    <p className="text-xs text-muted-foreground">{t('csvImport.updated')}</p>
                     <p className="text-xl font-bold text-indigo-600">{progress.updated}</p>
                   </div>
                   <div className="rounded-lg border p-3 text-center bg-rose-50 dark:bg-rose-900/10 border-rose-200 dark:border-rose-800">
-                    <p className="text-xs text-muted-foreground">Failed</p>
+                    <p className="text-xs text-muted-foreground">{t('csvImport.failed')}</p>
                     <p className="text-xl font-bold text-rose-600">{progress.failed}</p>
                   </div>
                 </div>
 
                 {errorRows.length > 0 && (
                   <div className="space-y-2">
-                    <p className="text-sm font-medium text-rose-600">Failed Rows ({errorRows.length})</p>
+                    <p className="text-sm font-medium text-rose-600">{t('csvImport.failedRows', { count: errorRows.length })}</p>
                     <ScrollArea className="h-32 border rounded-lg">
                       <div className="p-2 space-y-1">
                         {errorRows.slice(0, 50).map((err, i) => (
                           <div key={i} className="text-xs flex items-center gap-2 text-rose-600 dark:text-rose-400">
-                            <span className="font-mono">Row {err.row}</span>
+                            <span className="font-mono">{t('csvImport.rowNumber', { row: err.row })}</span>
                             <span>{err.name}</span>
                             <span className="text-muted-foreground">- {err.error}</span>
                           </div>
@@ -548,7 +585,7 @@ export function ImportCSVDialog({
           {step === 'preview' && (
             <>
               <Button variant="outline" onClick={() => setStep('mapping')}>
-                Back to Mapping
+                {t('csvImport.backToMapping')}
               </Button>
               <Button
                 onClick={runImport}
@@ -556,7 +593,7 @@ export function ImportCSVDialog({
                 className="bg-indigo-600 hover:bg-indigo-700"
               >
                 <Upload className="w-4 h-4 mr-2" />
-                Import {validation?.validRows.length || 0} Products
+                {t('csvImport.importProducts', { count: validation?.validRows.length || 0 })}
               </Button>
             </>
           )}
@@ -564,19 +601,19 @@ export function ImportCSVDialog({
             <>
               {errorRows.length > 0 && (
                 <Button variant="outline" onClick={downloadErrors}>
-                  <Download className="w-4 h-4 mr-2" /> Download Error Report
+                  <Download className="w-4 h-4 mr-2" /> {t('csvImport.downloadErrorReport')}
                 </Button>
               )}
               <Button
                 className="bg-indigo-600 hover:bg-indigo-700"
                 onClick={() => { onComplete(); handleClose(false); }}
               >
-                <CheckCircle2 className="w-4 h-4 mr-2" /> View Imported Products
+                <CheckCircle2 className="w-4 h-4 mr-2" /> {t('csvImport.viewProducts')}
               </Button>
             </>
           )}
           {(step === 'upload' || step === 'mapping') && (
-            <Button variant="outline" onClick={() => handleClose(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => handleClose(false)}>{t('common.cancel')}</Button>
           )}
         </DialogFooter>
       </DialogContent>

@@ -5,7 +5,7 @@ import bn from '@/messages/bn.json';
 
 export type Locale = 'en' | 'bn';
 
-const messages: Record<Locale, Record<string, Record<string, string>>> = {
+const messages: Record<Locale, Record<string, unknown>> = {
   en,
   bn,
 };
@@ -27,19 +27,20 @@ export const useI18nStore = create<I18nState>()(
 
 export function t(key: string, locale: Locale, params?: Record<string, string | number>): string {
   const parts = key.split('.');
-  let value: any = messages[locale];
+  let value: unknown = messages[locale];
   for (const part of parts) {
     if (value && typeof value === 'object' && part in value) {
-      value = value[part];
+      value = (value as Record<string, unknown>)[part];
     } else {
       return key;
     }
   }
   if (typeof value !== 'string') return key;
+  let translated = value;
   if (params) {
     for (const [k, v] of Object.entries(params)) {
-      value = value.replace(`{${k}}`, String(v));
+      translated = translated.replace(`{${k}}`, String(v));
     }
   }
-  return value;
+  return translated;
 }

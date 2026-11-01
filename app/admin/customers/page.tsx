@@ -18,8 +18,10 @@ import {
 import { supabase } from '@/lib/supabase';
 import type { Customer } from '@/types';
 import { toast } from 'sonner';
+import { useTranslation } from '@/hooks/use-translation';
 
 export default function CustomersPage() {
+  const { t, locale } = useTranslation();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -38,13 +40,13 @@ export default function CustomersPage() {
   const filtered = customers.filter((c) => !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.email?.toLowerCase().includes(search.toLowerCase()));
 
   const handleSave = async () => {
-    if (!form.name) { toast.error('Name is required'); return; }
+    if (!form.name) { toast.error(t('customers.nameRequired')); return; }
     if (editing) {
       await supabase.from('customers').update(form).eq('id', editing.id);
-      toast.success('Customer updated');
+      toast.success(t('customers.updateSuccess'));
     } else {
       await supabase.from('customers').insert({ ...form, status: 'active', reward_points: 0, wallet_balance: 0 });
-      toast.success('Customer created');
+      toast.success(t('customers.createSuccess'));
     }
     setDialogOpen(false); setEditing(null); setForm({ name: '', email: '', phone: '', address: '', membership: 'regular' });
     loadData();
@@ -52,7 +54,7 @@ export default function CustomersPage() {
 
   const handleDelete = async (id: string) => {
     await supabase.from('customers').delete().eq('id', id);
-    toast.success('Customer deleted');
+    toast.success(t('customers.deleteSuccess'));
     loadData();
   };
 
@@ -66,20 +68,20 @@ export default function CustomersPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h2 className="text-2xl font-bold font-heading">Customers</h2>
-          <p className="text-sm text-muted-foreground">Manage customer accounts and loyalty</p>
+          <h2 className="text-2xl font-bold font-heading">{t('customers.title')}</h2>
+          <p className="text-sm text-muted-foreground">{t('customers.subtitle')}</p>
         </div>
         <Button size="sm" className="bg-gradient-to-r from-slate-800 to-black" onClick={() => { setEditing(null); setForm({ name: '', email: '', phone: '', address: '', membership: 'regular' }); setDialogOpen(true); }}>
-          <Plus className="w-4 h-4 mr-2" /> Add Customer
+          <Plus className="w-4 h-4 mr-2" /> {t('customers.addCustomer')}
         </Button>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
-          { label: 'Total Customers', value: customers.length, icon: Users, color: 'from-slate-800 to-black' },
-          { label: 'Gold Members', value: customers.filter((c) => c.membership === 'gold').length, icon: Award, color: 'from-amber-500 to-orange-600' },
-          { label: 'Silver Members', value: customers.filter((c) => c.membership === 'silver').length, icon: Award, color: 'from-slate-500 to-slate-600' },
-          { label: 'Total Wallet', value: `৳${customers.reduce((s, c) => s + Number(c.wallet_balance), 0).toFixed(2)}`, icon: Wallet, color: 'from-blue-500 to-cyan-600' },
+          { label: t('dashboard.totalCustomers'), value: customers.length, icon: Users, color: 'from-slate-800 to-black' },
+          { label: t('customers.goldMembers'), value: customers.filter((c) => c.membership === 'gold').length, icon: Award, color: 'from-amber-500 to-orange-600' },
+          { label: t('customers.silverMembers'), value: customers.filter((c) => c.membership === 'silver').length, icon: Award, color: 'from-slate-500 to-slate-600' },
+          { label: t('customers.totalWallet'), value: `৳${customers.reduce((s, c) => s + Number(c.wallet_balance), 0).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: Wallet, color: 'from-blue-500 to-cyan-600' },
         ].map((stat, i) => (
           <motion.div key={stat.label} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
             <Card className="p-4">
@@ -96,22 +98,22 @@ export default function CustomersPage() {
 
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input placeholder="Search customers..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
+        <Input placeholder={t('customers.search')} value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
       </div>
 
       <Card className="overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Contact</TableHead>
-              <TableHead>Membership</TableHead>
-              <TableHead>Total Purchase</TableHead>
-              <TableHead>Total Due</TableHead>
-              <TableHead>Reward Points</TableHead>
-              <TableHead>Wallet</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead>{t('common.name')}</TableHead>
+              <TableHead>{t('common.contact')}</TableHead>
+              <TableHead>{t('customers.membership')}</TableHead>
+              <TableHead>{t('customers.totalPurchases')}</TableHead>
+              <TableHead>{t('customers.totalDue')}</TableHead>
+              <TableHead>{t('customers.rewardPoints')}</TableHead>
+              <TableHead>{t('customers.wallet')}</TableHead>
+              <TableHead>{t('common.status')}</TableHead>
+              <TableHead className="text-right">{t('common.actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -126,16 +128,16 @@ export default function CustomersPage() {
                     {c.phone && <p className="text-xs text-muted-foreground flex items-center gap-1"><Phone className="w-3 h-3" />{c.phone}</p>}
                   </div>
                 </TableCell>
-                <TableCell><Badge className={membershipColors[c.membership] || membershipColors.regular}>{c.membership}</Badge></TableCell>
-                <TableCell className="font-medium">৳{Number(c.total_buy || 0).toFixed(2)}</TableCell>
-                <TableCell className={Number(c.total_due || 0) > 0 ? 'font-medium text-amber-600' : 'text-muted-foreground'}>৳{Number(c.total_due || 0).toFixed(2)}</TableCell>
+                <TableCell><Badge className={membershipColors[c.membership] || membershipColors.regular}>{t(`customers.membershipLevels.${c.membership}`)}</Badge></TableCell>
+                <TableCell className="font-medium">৳{Number(c.total_buy || 0).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                <TableCell className={Number(c.total_due || 0) > 0 ? 'font-medium text-amber-600' : 'text-muted-foreground'}>৳{Number(c.total_due || 0).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
                 <TableCell>{c.reward_points}</TableCell>
-                <TableCell className="font-medium">৳{Number(c.wallet_balance || 0).toFixed(2)}</TableCell>
-                <TableCell><Badge variant="secondary" className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">{c.status}</Badge></TableCell>
+                <TableCell className="font-medium">৳{Number(c.wallet_balance || 0).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                <TableCell><Badge variant="secondary" className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">{t(c.status === 'active' ? 'common.active' : 'common.inactive')}</Badge></TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
                     <Link href={`/admin/customers/${c.id}`}>
-                      <Button size="icon" variant="ghost" className="h-8 w-8" title="View profile"><Eye className="w-4 h-4" /></Button>
+                      <Button size="icon" variant="ghost" className="h-8 w-8" title={t('customers.viewProfile')}><Eye className="w-4 h-4" /></Button>
                     </Link>
                     <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => { setEditing(c); setForm({ name: c.name, email: c.email || '', phone: c.phone || '', address: c.address || '', membership: c.membership }); setDialogOpen(true); }}>
                       <Edit2 className="w-4 h-4" />
@@ -153,23 +155,23 @@ export default function CustomersPage() {
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>{editing ? 'Edit Customer' : 'Add Customer'}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editing ? t('customers.editCustomer') : t('customers.addCustomer')}</DialogTitle></DialogHeader>
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2 col-span-2"><Label>Name *</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-            <div className="space-y-2"><Label>Email</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
-            <div className="space-y-2"><Label>Phone</Label><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
-            <div className="space-y-2 col-span-2"><Label>Address</Label><Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
-            <div className="space-y-2"><Label>Membership</Label>
+            <div className="space-y-2 col-span-2"><Label>{t('common.name')} *</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+            <div className="space-y-2"><Label>{t('common.email')}</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
+            <div className="space-y-2"><Label>{t('common.phone')}</Label><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
+            <div className="space-y-2 col-span-2"><Label>{t('common.address')}</Label><Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
+            <div className="space-y-2"><Label>{t('customers.membership')}</Label>
               <select className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm" value={form.membership} onChange={(e) => setForm({ ...form, membership: e.target.value })}>
-                <option value="regular">Regular</option>
-                <option value="silver">Silver</option>
-                <option value="gold">Gold</option>
+                <option value="regular">{t('customers.membershipLevels.regular')}</option>
+                <option value="silver">{t('customers.membershipLevels.silver')}</option>
+                <option value="gold">{t('customers.membershipLevels.gold')}</option>
               </select>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <Button className="bg-gradient-to-r from-slate-800 to-black" onClick={handleSave}>{editing ? 'Update' : 'Create'}</Button>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>{t('common.cancel')}</Button>
+            <Button className="bg-gradient-to-r from-slate-800 to-black" onClick={handleSave}>{editing ? t('common.update') : t('common.create')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

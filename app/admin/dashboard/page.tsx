@@ -42,12 +42,12 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/providers';
 import { toast } from 'sonner';
+import { useTranslation } from '@/hooks/use-translation';
 
 const fmt = (n: number) => `৳${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 type StatBox = {
-  label: string;
-  labelBn: string;
+  labelKey: string;
   value: string;
   icon: any;
   color: string;
@@ -62,6 +62,7 @@ export default function DashboardPage() {
   const [recentSales, setRecentSales] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
+  const { t, locale } = useTranslation();
 
   useEffect(() => {
     async function loadDashboard() {
@@ -133,30 +134,30 @@ export default function DashboardPage() {
       const totalSupplierDue = supplierDueRes.data?.reduce((sum, s) => sum + Number(s.total_due || 0), 0) || 0;
 
       if (todayProfitRes.error) {
-        toast.error(`Unable to load today's sales profit: ${todayProfitRes.error.message}`);
+        toast.error(`${t('dashboard.profitLoadFailed')}: ${todayProfitRes.error.message}`);
       }
       const netProfit = todayProfitRes.error
         ? null
         : Number(todayProfitRes.data || 0) + income - expenses;
 
       const statBoxes: StatBox[] = [
-        { label: 'Total Sales', labelBn: 'মোট বিক্রি', value: fmt(todaySales), icon: ShoppingCart, color: 'from-slate-800 to-black' },
-        { label: 'Net Profit', labelBn: 'নেট প্রফিট', value: netProfit === null ? '—' : fmt(netProfit), icon: TrendingUp, color: 'from-emerald-500 to-green-600' },
-        { label: 'Due Sales', labelBn: 'বাকি বিক্রি', value: fmt(todayDueSales), icon: CreditCard, color: 'from-amber-500 to-orange-600' },
-        { label: 'Expenses', labelBn: 'ব্যয়', value: fmt(expenses), icon: CreditCard, color: 'from-rose-500 to-pink-600' },
-        { label: 'Income', labelBn: 'আয়', value: fmt(income), icon: HandCoins, color: 'from-teal-500 to-cyan-600' },
-        { label: 'Total Purchases', labelBn: 'মোট ক্রয়', value: fmt(totalPurchases), icon: Truck, color: 'from-blue-500 to-indigo-600' },
-        { label: 'Due Purchases', labelBn: 'বাকি ক্রয়', value: fmt(duePurchases), icon: Truck, color: 'from-violet-500 to-purple-600' },
-        { label: 'Sales Returns', labelBn: 'মোট বিক্রি রিটার্ন', value: fmt(saleReturns), icon: RotateCcw, color: 'from-orange-500 to-red-600' },
-        { label: 'Purchase Returns', labelBn: 'মোট ক্রয় রিটার্ন', value: fmt(purchaseReturns), icon: RotateCcw, color: 'from-red-500 to-rose-600' },
-        { label: "Today's Collections", labelBn: 'আজ বাকি কালেকশন', value: fmt(todayCollections), icon: Wallet, color: 'from-green-500 to-emerald-600' },
-        { label: "Today's Payments", labelBn: 'আজ বাকি পেমেন্ট', value: fmt(todayPayments), icon: Banknote, color: 'from-cyan-500 to-blue-600' },
-        { label: 'Stock Quantity', labelBn: 'স্টক সংখ্যা', value: stockCount.toLocaleString(), icon: Package, color: 'from-amber-600 to-yellow-600' },
-        { label: 'Stock Value', labelBn: 'স্টক ভ্যালু', value: fmt(stockValue), icon: DollarSign, color: 'from-lime-500 to-green-600' },
-        { label: 'Total Customers', labelBn: 'মোট কাস্টমার', value: (customersRes.count || 0).toString(), icon: Users, color: 'from-teal-600 to-cyan-700' },
-        { label: 'Total Suppliers', labelBn: 'মোট সাপ্লায়ার', value: (suppliersRes.count || 0).toString(), icon: Truck, color: 'from-indigo-500 to-blue-600' },
-        { label: 'Total Invoices', labelBn: 'মোট ইনভয়েস', value: (invoicesRes.count || 0).toString(), icon: FileText, color: 'from-slate-600 to-gray-700' },
-        { label: 'Total Customer Due', labelBn: 'মোট কাস্টমার বাকি', value: fmt(totalCustomerDue), icon: UserCheck, color: 'from-pink-500 to-rose-600' },
+        { labelKey: 'dashboard.totalSales', value: fmt(todaySales), icon: ShoppingCart, color: 'from-slate-800 to-black' },
+        { labelKey: 'dashboard.netProfit', value: netProfit === null ? '—' : fmt(netProfit), icon: TrendingUp, color: 'from-emerald-500 to-green-600' },
+        { labelKey: 'dashboard.dueSales', value: fmt(todayDueSales), icon: CreditCard, color: 'from-amber-500 to-orange-600' },
+        { labelKey: 'dashboard.expenses', value: fmt(expenses), icon: CreditCard, color: 'from-rose-500 to-pink-600' },
+        { labelKey: 'dashboard.income', value: fmt(income), icon: HandCoins, color: 'from-teal-500 to-cyan-600' },
+        { labelKey: 'dashboard.totalPurchases', value: fmt(totalPurchases), icon: Truck, color: 'from-blue-500 to-indigo-600' },
+        { labelKey: 'dashboard.duePurchases', value: fmt(duePurchases), icon: Truck, color: 'from-violet-500 to-purple-600' },
+        { labelKey: 'dashboard.salesReturns', value: fmt(saleReturns), icon: RotateCcw, color: 'from-orange-500 to-red-600' },
+        { labelKey: 'dashboard.purchaseReturns', value: fmt(purchaseReturns), icon: RotateCcw, color: 'from-red-500 to-rose-600' },
+        { labelKey: 'dashboard.todayCollections', value: fmt(todayCollections), icon: Wallet, color: 'from-green-500 to-emerald-600' },
+        { labelKey: 'dashboard.todayPayments', value: fmt(todayPayments), icon: Banknote, color: 'from-cyan-500 to-blue-600' },
+        { labelKey: 'dashboard.stockQuantity', value: stockCount.toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US'), icon: Package, color: 'from-amber-600 to-yellow-600' },
+        { labelKey: 'dashboard.stockValue', value: fmt(stockValue), icon: DollarSign, color: 'from-lime-500 to-green-600' },
+        { labelKey: 'dashboard.totalCustomers', value: (customersRes.count || 0).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US'), icon: Users, color: 'from-teal-600 to-cyan-700' },
+        { labelKey: 'dashboard.totalSuppliers', value: (suppliersRes.count || 0).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US'), icon: Truck, color: 'from-indigo-500 to-blue-600' },
+        { labelKey: 'dashboard.totalInvoices', value: (invoicesRes.count || 0).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US'), icon: FileText, color: 'from-slate-600 to-gray-700' },
+        { labelKey: 'dashboard.totalCustomerDue', value: fmt(totalCustomerDue), icon: UserCheck, color: 'from-pink-500 to-rose-600' },
       ];
 
       setStats(statBoxes);
@@ -178,7 +179,7 @@ export default function DashboardPage() {
         );
         const dayTotal = daySales.reduce((sum, s) => sum + Number(s.total), 0);
         days30.push({
-          date: dayStart.toLocaleDateString('en', { day: 'numeric', month: 'short' }),
+          date: dayStart.toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-US', { day: 'numeric', month: 'short' }),
           sales: Math.round(dayTotal * 100) / 100,
         });
       }
@@ -191,8 +192,10 @@ export default function DashboardPage() {
         .gte('sale_date', fyStart)
         .order('sale_date', { ascending: true });
 
-      const months = ['Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-      const fyData: any[] = months.map((m) => ({ month: m, sales: 0 }));
+      const months = Array.from({ length: 12 }, (_, index) =>
+        new Date(now.getFullYear(), 6 + index, 1).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-US', { month: 'short' })
+      );
+      const fyData: any[] = months.map((month) => ({ month, sales: 0 }));
       (fyRes.data || []).forEach((s) => {
         const d = new Date(s.sale_date);
         let mIdx = d.getMonth() - 6; // July = 0
@@ -232,7 +235,7 @@ export default function DashboardPage() {
       setLoading(false);
     }
     loadDashboard();
-  }, []);
+  }, [locale, t]);
 
   if (loading) {
     return (
@@ -267,28 +270,28 @@ export default function DashboardPage() {
               <span className="text-amber-400 text-sm font-medium">StyleBazaar Fashion POS</span>
             </div>
             <h2 className="text-2xl font-bold font-heading text-white mb-1">
-              Welcome back, {typeof user?.user_metadata?.full_name === 'string' ? user.user_metadata.full_name : user?.email || 'there'}!
+              {t('dashboard.welcomeName', { name: typeof user?.user_metadata?.full_name === 'string' ? user.user_metadata.full_name : user?.email || t('dashboard.there') })}
             </h2>
             <p className="text-slate-300">
-              Here&apos;s what&apos;s happening at your clothing store today.
+              {t('dashboard.storeToday')}
             </p>
           </div>
           <div className="flex gap-3">
             <Button variant="secondary" className="bg-white/10 text-white hover:bg-white/20 border-0">
-              View Reports
+              {t('dashboard.viewReports')}
             </Button>
             <Button className="bg-amber-500 text-slate-900 hover:bg-amber-400">
-              New Sale
+              {t('dashboard.newSale')}
             </Button>
           </div>
         </div>
       </motion.div>
 
-      {/* 17 Stat Boxes - Bilingual labels */}
+      {/* 17 Stat Boxes */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
         {stats.map((stat, i) => (
           <motion.div
-            key={stat.label}
+            key={stat.labelKey}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, delay: i * 0.03 }}
@@ -299,8 +302,7 @@ export default function DashboardPage() {
                   <stat.icon className="w-5 h-5 text-white" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xs text-muted-foreground truncate">{stat.label}</p>
-                  <p className="text-[10px] text-muted-foreground/70 truncate">{stat.labelBn}</p>
+                  <p className="text-xs text-muted-foreground truncate">{t(stat.labelKey)}</p>
                   <p className="text-lg font-bold font-heading mt-0.5">{stat.value}</p>
                 </div>
               </div>
@@ -320,11 +322,10 @@ export default function DashboardPage() {
           <Card className="p-6">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="font-semibold font-heading">Sales Last 30 Days</h3>
-                <p className="text-sm text-muted-foreground">বিক্রি - গত ৩০ দিন</p>
+                <h3 className="font-semibold font-heading">{t('dashboard.salesLast30Days')}</h3>
               </div>
               <Badge variant="secondary" className="bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
-                30 Days
+                {t('dashboard.days30')}
               </Badge>
             </div>
             <ResponsiveContainer width="100%" height={280}>
@@ -356,11 +357,10 @@ export default function DashboardPage() {
           <Card className="p-6">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="font-semibold font-heading">Sales Current Financial Year</h3>
-                <p className="text-sm text-muted-foreground">বিক্রি - চলতি অর্থবছর</p>
+                <h3 className="font-semibold font-heading">{t('dashboard.financialYearSales')}</h3>
               </div>
               <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
-                Annual
+                {t('dashboard.annual')}
               </Badge>
             </div>
             <ResponsiveContainer width="100%" height={280}>
@@ -387,8 +387,8 @@ export default function DashboardPage() {
           transition={{ duration: 0.4, delay: 0.4 }}
         >
           <Card className="p-6">
-            <h3 className="font-semibold font-heading mb-1">Stock by Category</h3>
-            <p className="text-sm text-muted-foreground mb-4">Inventory distribution</p>
+            <h3 className="font-semibold font-heading mb-1">{t('dashboard.stockByCategory')}</h3>
+            <p className="text-sm text-muted-foreground mb-4">{t('dashboard.inventoryDistribution')}</p>
             <ResponsiveContainer width="100%" height={200}>
               <PieChart>
                 <Pie data={categoryData} cx="50%" cy="50%" innerRadius={45} outerRadius={75} paddingAngle={3} dataKey="value">
@@ -409,7 +409,7 @@ export default function DashboardPage() {
                   <span className="font-medium">{cat.value}</span>
                 </div>
               ))}
-              {categoryData.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No data yet</p>}
+              {categoryData.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">{t('common.noData')}</p>}
             </div>
           </Card>
         </motion.div>
@@ -421,7 +421,7 @@ export default function DashboardPage() {
           transition={{ duration: 0.4, delay: 0.45 }}
         >
           <Card className="p-6">
-            <h3 className="font-semibold font-heading mb-4">Top Selling Products</h3>
+            <h3 className="font-semibold font-heading mb-4">{t('dashboard.topProducts')}</h3>
             {topProducts.length > 0 ? (
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={topProducts} layout="vertical">
@@ -433,7 +433,7 @@ export default function DashboardPage() {
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="flex items-center justify-center h-[240px] text-muted-foreground text-sm">No sales data yet</div>
+              <div className="flex items-center justify-center h-[240px] text-muted-foreground text-sm">{t('dashboard.noSalesData')}</div>
             )}
           </Card>
         </motion.div>
@@ -446,8 +446,8 @@ export default function DashboardPage() {
         >
           <Card className="p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold font-heading">Recent Sales</h3>
-              <Button variant="ghost" size="sm" className="text-primary">View All</Button>
+              <h3 className="font-semibold font-heading">{t('dashboard.recentSales')}</h3>
+              <Button variant="ghost" size="sm" className="text-primary">{t('dashboard.viewAll')}</Button>
             </div>
             <div className="space-y-3">
               {recentSales.length > 0 ? recentSales.map((sale) => (
@@ -459,7 +459,7 @@ export default function DashboardPage() {
                     <div>
                       <p className="text-sm font-medium">{sale.invoice_number}</p>
                       <p className="text-xs text-muted-foreground">
-                        {sale.customers?.name || 'Walk-in'} · {sale.sale_items?.length || 0} items
+                        {sale.customers?.name || t('pos.walkInCustomer')} · {t('dashboard.itemsCount', { count: sale.sale_items?.length || 0 })}
                       </p>
                     </div>
                   </div>
@@ -469,7 +469,7 @@ export default function DashboardPage() {
                   </div>
                 </div>
               )) : (
-                <div className="flex items-center justify-center py-12 text-muted-foreground text-sm">No sales yet</div>
+                <div className="flex items-center justify-center py-12 text-muted-foreground text-sm">{t('dashboard.noSalesYet')}</div>
               )}
             </div>
           </Card>

@@ -17,8 +17,10 @@ import {
 import { supabase } from '@/lib/supabase';
 import type { Supplier } from '@/types';
 import { toast } from 'sonner';
+import { useTranslation } from '@/hooks/use-translation';
 
 export default function SuppliersPage() {
+  const { t, locale } = useTranslation();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -37,13 +39,13 @@ export default function SuppliersPage() {
   const filtered = suppliers.filter((s) => !search || s.name.toLowerCase().includes(search.toLowerCase()) || s.contact_person?.toLowerCase().includes(search.toLowerCase()));
 
   const handleSave = async () => {
-    if (!form.name) { toast.error('Name is required'); return; }
+    if (!form.name) { toast.error(t('suppliers.nameRequired')); return; }
     if (editing) {
       await supabase.from('suppliers').update(form).eq('id', editing.id);
-      toast.success('Supplier updated');
+      toast.success(t('suppliers.updateSuccess'));
     } else {
       await supabase.from('suppliers').insert({ ...form, status: 'active', balance: 0 });
-      toast.success('Supplier created');
+      toast.success(t('suppliers.createSuccess'));
     }
     setDialogOpen(false); setEditing(null); setForm({ name: '', contact_person: '', email: '', phone: '', address: '', city: '', country: '' });
     loadData();
@@ -51,7 +53,7 @@ export default function SuppliersPage() {
 
   const handleDelete = async (id: string) => {
     await supabase.from('suppliers').delete().eq('id', id);
-    toast.success('Supplier deleted');
+    toast.success(t('suppliers.deleteSuccess'));
     loadData();
   };
 
@@ -59,17 +61,17 @@ export default function SuppliersPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h2 className="text-2xl font-bold font-heading">Suppliers</h2>
-          <p className="text-sm text-muted-foreground">Manage supplier relationships</p>
+          <h2 className="text-2xl font-bold font-heading">{t('suppliers.title')}</h2>
+          <p className="text-sm text-muted-foreground">{t('suppliers.subtitle')}</p>
         </div>
         <Button size="sm" className="bg-gradient-to-r from-slate-800 to-black" onClick={() => { setEditing(null); setForm({ name: '', contact_person: '', email: '', phone: '', address: '', city: '', country: '' }); setDialogOpen(true); }}>
-          <Plus className="w-4 h-4 mr-2" /> Add Supplier
+          <Plus className="w-4 h-4 mr-2" /> {t('suppliers.addSupplier')}
         </Button>
       </div>
 
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input placeholder="Search suppliers..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
+        <Input placeholder={t('suppliers.search')} value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -102,8 +104,8 @@ export default function SuppliersPage() {
                   {s.city && <p className="flex items-center gap-2"><MapPin className="w-3 h-3" />{s.city}, {s.country}</p>}
                 </div>
                 <div className="flex items-center justify-between mt-3 pt-3 border-t border-border/40">
-                  <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">{s.status}</Badge>
-                  <span className="text-sm font-medium">Balance: ৳${Number(s.balance).toFixed(2)}</span>
+                  <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">{t(s.status === 'active' ? 'common.active' : 'common.inactive')}</Badge>
+                  <span className="text-sm font-medium">{t('suppliers.balance')}: ৳${Number(s.balance).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
               </Card>
             </motion.div>
@@ -112,19 +114,19 @@ export default function SuppliersPage() {
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>{editing ? 'Edit Supplier' : 'Add Supplier'}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editing ? t('suppliers.editSupplier') : t('suppliers.addSupplier')}</DialogTitle></DialogHeader>
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2 col-span-2"><Label>Name *</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-            <div className="space-y-2"><Label>Contact Person</Label><Input value={form.contact_person} onChange={(e) => setForm({ ...form, contact_person: e.target.value })} /></div>
-            <div className="space-y-2"><Label>Phone</Label><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
-            <div className="space-y-2"><Label>Email</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
-            <div className="space-y-2"><Label>City</Label><Input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></div>
-            <div className="space-y-2 col-span-2"><Label>Address</Label><Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
-            <div className="space-y-2"><Label>Country</Label><Input value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} /></div>
+            <div className="space-y-2 col-span-2"><Label>{t('common.name')} *</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+            <div className="space-y-2"><Label>{t('suppliers.contactPerson')}</Label><Input value={form.contact_person} onChange={(e) => setForm({ ...form, contact_person: e.target.value })} /></div>
+            <div className="space-y-2"><Label>{t('common.phone')}</Label><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
+            <div className="space-y-2"><Label>{t('common.email')}</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
+            <div className="space-y-2"><Label>{t('suppliers.city')}</Label><Input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></div>
+            <div className="space-y-2 col-span-2"><Label>{t('common.address')}</Label><Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
+            <div className="space-y-2"><Label>{t('suppliers.country')}</Label><Input value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} /></div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <Button className="bg-gradient-to-r from-slate-800 to-black" onClick={handleSave}>{editing ? 'Update' : 'Create'}</Button>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>{t('common.cancel')}</Button>
+            <Button className="bg-gradient-to-r from-slate-800 to-black" onClick={handleSave}>{editing ? t('common.update') : t('common.create')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

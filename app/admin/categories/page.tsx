@@ -20,8 +20,10 @@ import {
 import { supabase } from '@/lib/supabase';
 import type { Category } from '@/types';
 import { toast } from 'sonner';
+import { useTranslation } from '@/hooks/use-translation';
 
 export default function CategoriesPage() {
+  const { t, locale } = useTranslation();
   const [categories, setCategories] = useState<Category[]>([]);
   const [filtered, setFiltered] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,20 +66,20 @@ export default function CategoriesPage() {
   };
 
   const handleSave = async () => {
-    if (!name.trim()) { toast.error('ক্যাটাগরি নাম আবশ্যক'); return; }
+    if (!name.trim()) { toast.error(t('categories.nameRequired')); return; }
     setSaving(true);
 
     const dup = categories.find((c) => c.name.toLowerCase() === name.toLowerCase().trim() && c.id !== editing?.id);
-    if (dup) { toast.error('এই নামের ক্যাটাগরি ইতিমধ্যে বিদ্যমান'); setSaving(false); return; }
+    if (dup) { toast.error(t('categories.nameExists')); setSaving(false); return; }
 
     if (editing) {
       const { error } = await supabase.from('categories').update({ name, description, status }).eq('id', editing.id);
-      if (error) { toast.error('আপডেট ব্যর্থ'); setSaving(false); return; }
-      toast.success('ক্যাটাগরি সফলভাবে আপডেট হয়েছে');
+      if (error) { toast.error(t('common.updateFailed')); setSaving(false); return; }
+      toast.success(t('categories.updateSuccess'));
     } else {
       const { error } = await supabase.from('categories').insert({ name, description, status });
-      if (error) { toast.error('তৈরি ব্যর্থ'); setSaving(false); return; }
-      toast.success('ক্যাটাগরি সফলভাবে তৈরি হয়েছে');
+      if (error) { toast.error(t('common.createFailed')); setSaving(false); return; }
+      toast.success(t('categories.createSuccess'));
     }
     setSaving(false);
     setDialogOpen(false);
@@ -97,7 +99,7 @@ export default function CategoriesPage() {
       await supabase.from('products').update({ category_id: reassignTarget }).eq('category_id', deleteTarget.id);
     }
     await supabase.from('categories').delete().eq('id', deleteTarget.id);
-    toast.success('ক্যাটাগরি সফলভাবে মুছে ফেলা হয়েছে');
+    toast.success(t('categories.deleteSuccess'));
     setDeleteTarget(null);
     setDeleteInfo(null);
     setReassignTarget('');
@@ -105,21 +107,21 @@ export default function CategoriesPage() {
   };
 
   const exportCSV = () => {
-    const headers = ['ক্যাটাগরি নাম', 'বর্ণনা', 'স্ট্যাটাস', 'তারিখ'];
-    const rows = filtered.map((c) => [c.name, c.description || '', c.status, new Date(c.created_at).toLocaleDateString()]);
+    const headers = [t('categories.categoryName'), t('common.description'), t('common.status'), t('common.date')];
+    const rows = filtered.map((c) => [c.name, c.description || '', t(c.status === 'active' ? 'common.active' : 'common.inactive'), new Date(c.created_at).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-US')]);
     const csv = [headers, ...rows].map((r) => r.map((v) => `"${v}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = 'categories.csv';
     link.click();
-    toast.success('CSV ডাউনলোড হয়েছে');
+    toast.success(t('common.csvDownloaded'));
   };
 
   const printCategories = () => {
     const win = window.open('', '_blank', 'width=800,height=600');
-    if (!win) { toast.error('পপআপ অনুমোদন করুন'); return; }
-    win.document.write(`<html><head><title>ক্যাটাগরি তালিকা</title><style>body{font-family:sans-serif;padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}</style></head><body><h2>পণ্যের ক্যাটাগরি</h2><table><tr><th>ক্রম</th><th>ক্যাটাগরি নাম</th><th>বর্ণনা</th><th>তারিখ</th></tr>${filtered.map((c, i) => `<tr><td>${i + 1}</td><td>${c.name}</td><td>${c.description || ''}</td><td>${new Date(c.created_at).toLocaleDateString()}</td></tr>`).join('')}</table></body></html>`);
+    if (!win) { toast.error(t('common.allowPopups')); return; }
+    win.document.write(`<html lang="${locale}"><head><title>${t('categories.title')}</title><style>body{font-family:${locale === 'bn' ? "'Noto Sans Bengali',sans-serif" : 'sans-serif'};padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}</style></head><body><h2>${t('categories.title')}</h2><table><tr><th>${t('categories.serial')}</th><th>${t('categories.categoryName')}</th><th>${t('common.description')}</th><th>${t('common.date')}</th></tr>${filtered.map((c, i) => `<tr><td>${i + 1}</td><td>${c.name}</td><td>${c.description || ''}</td><td>${new Date(c.created_at).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-US')}</td></tr>`).join('')}</table></body></html>`);
     win.document.close();
     win.print();
   };
@@ -128,14 +130,14 @@ export default function CategoriesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h2 className="text-2xl font-bold font-heading">পণ্যের ক্যাটাগরি</h2>
-          <p className="text-sm text-muted-foreground">সর্বমোট ক্যাটাগরি: {categories.length} টি</p>
+          <h2 className="text-2xl font-bold font-heading">{t('categories.title')}</h2>
+          <p className="text-sm text-muted-foreground">{t('categories.totalCategories')}: {categories.length}</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={exportCSV}><Copy className="w-4 h-4 mr-2" /> CSV</Button>
-          <Button variant="outline" size="sm" onClick={printCategories}><Printer className="w-4 h-4 mr-2" /> প্রিন্ট</Button>
+          <Button variant="outline" size="sm" onClick={printCategories}><Printer className="w-4 h-4 mr-2" /> {t('common.print')}</Button>
           <Button size="sm" onClick={openNew} className="bg-indigo-600 hover:bg-indigo-700">
-            <Plus className="w-4 h-4 mr-2" /> পণ্যের ক্যাটাগরি
+            <Plus className="w-4 h-4 mr-2" /> {t('categories.addCategory')}
           </Button>
         </div>
       </div>
@@ -143,7 +145,7 @@ export default function CategoriesPage() {
       <div className="flex gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="নাম দিয়ে খুঁজুন..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
+          <Input placeholder={t('categories.search')} value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
         </div>
       </div>
 
@@ -151,12 +153,12 @@ export default function CategoriesPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-12">ক্রম</TableHead>
-              <TableHead>ক্যাটাগরি নাম</TableHead>
-              <TableHead>বর্ণনা</TableHead>
-              <TableHead>তারিখ</TableHead>
-              <TableHead>এখন</TableHead>
-              <TableHead className="text-right">অ্যাকশন</TableHead>
+              <TableHead className="w-12">{t('categories.serial')}</TableHead>
+              <TableHead>{t('categories.categoryName')}</TableHead>
+              <TableHead>{t('common.description')}</TableHead>
+              <TableHead>{t('common.date')}</TableHead>
+              <TableHead>{t('common.status')}</TableHead>
+              <TableHead className="text-right">{t('common.action')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -171,7 +173,7 @@ export default function CategoriesPage() {
                 <TableCell colSpan={6}>
                   <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                     <Tags className="w-12 h-12 mb-3 opacity-50" />
-                    <p>কোন ক্যাটাগরি পাওয়া যায়নি</p>
+                    <p>{t('categories.noCategories')}</p>
                   </div>
                 </TableCell>
               </TableRow>
@@ -188,10 +190,10 @@ export default function CategoriesPage() {
                     </div>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">{cat.description || '-'}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{new Date(cat.created_at).toLocaleDateString()}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{new Date(cat.created_at).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-US')}</TableCell>
                   <TableCell>
                     <Badge variant={cat.status === 'active' ? 'secondary' : 'outline'} className={cat.status === 'active' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : ''}>
-                      {cat.status === 'active' ? 'সক্রিয়' : 'নিষ্ক্রিয়'}
+                      {t(cat.status === 'active' ? 'common.active' : 'common.inactive')}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
@@ -209,27 +211,27 @@ export default function CategoriesPage() {
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>{editing ? 'ক্যাটাগরি সম্পাদনা' : 'নতুন ক্যাটাগরি যোগ করুন'}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editing ? t('categories.editCategory') : t('categories.addCategory')}</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>ক্যাটাগরি নাম *</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="যেমন: Panjabi" />
+              <Label>{t('categories.categoryName')} *</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('categories.exampleCategory')} />
             </div>
             <div className="space-y-2">
-              <Label>বর্ণনা</Label>
-              <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="ক্যাটাগরির বর্ণনা" />
+              <Label>{t('common.description')}</Label>
+              <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('categories.descriptionPlaceholder')} />
             </div>
             <div className="space-y-2">
-              <Label>স্ট্যাটাস</Label>
+              <Label>{t('common.status')}</Label>
               <select value={status} onChange={(e) => setStatus(e.target.value)} className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
-                <option value="active">সক্রিয়</option>
-                <option value="inactive">নিষ্ক্রিয়</option>
+                <option value="active">{t('common.active')}</option>
+                <option value="inactive">{t('common.inactive')}</option>
               </select>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>বাতিল</Button>
-            <Button onClick={handleSave} disabled={saving} className="bg-indigo-600 hover:bg-indigo-700">{saving ? 'সংরক্ষণ হচ্ছে...' : editing ? 'আপডেট' : 'তৈরি করুন'}</Button>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>{t('common.cancel')}</Button>
+            <Button onClick={handleSave} disabled={saving} className="bg-indigo-600 hover:bg-indigo-700">{saving ? t('common.saving') : editing ? t('common.update') : t('common.create')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -237,26 +239,26 @@ export default function CategoriesPage() {
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteInfo(null); setReassignTarget(''); } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>আপনি কি এই ক্যাটাগরিটি মুছে ফেলতে চান?</AlertDialogTitle>
+            <AlertDialogTitle>{t('categories.deleteConfirm')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {deleteInfo?.loading ? 'যাচাই হচ্ছে...' :
+              {deleteInfo?.loading ? t('common.checking') :
                deleteInfo && deleteInfo.productCount > 0 ?
-                `এই ক্যাটাগরি বর্তমানে ${deleteInfo.productCount} টি পণ্যে ব্যবহৃত হচ্ছে। মুছে ফেলার আগে পণ্যগুলো অন্য ক্যাটাগরিতে সরিয়ে নিন অথবা শুধু ক্যাটাগরি মুছে ফেলুন।`
-                : 'এই কাজটি ফিরিয়ে আনা যাবে না।'}
+                t('categories.deleteUsedWarning', { count: deleteInfo.productCount })
+                : t('common.irreversibleAction')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {deleteInfo && deleteInfo.productCount > 0 && (
             <div className="space-y-2 py-2">
-              <Label>পণ্য সরিয়ে নিন (ঐচ্ছিক)</Label>
+              <Label>{t('categories.reassignProducts')} ({t('common.optional')})</Label>
               <select value={reassignTarget} onChange={(e) => setReassignTarget(e.target.value)} className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
-                <option value="">-- ক্যাটাগরি সিলেক্ট করুন --</option>
+                <option value="">-- {t('categories.selectCategory')} --</option>
                 {categories.filter((c) => c.id !== deleteTarget?.id).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
           )}
           <AlertDialogFooter>
-            <AlertDialogCancel>বাতিল</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteConfirm} className="bg-rose-600 hover:bg-rose-700">মুছে ফেলুন</AlertDialogAction>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteConfirm} className="bg-rose-600 hover:bg-rose-700">{t('common.delete')}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

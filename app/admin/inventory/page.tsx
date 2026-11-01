@@ -27,8 +27,10 @@ import {
 import { supabase } from '@/lib/supabase';
 import type { Product, StockMovement } from '@/types';
 import { toast } from 'sonner';
+import { useTranslation } from '@/hooks/use-translation';
 
 export default function InventoryPage() {
+  const { t, locale } = useTranslation();
   const [products, setProducts] = useState<Product[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,17 +58,17 @@ export default function InventoryPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold font-heading">Inventory Management</h2>
-        <p className="text-sm text-muted-foreground">Track stock levels, movements, and alerts</p>
+        <h2 className="text-2xl font-bold font-heading">{t('inventory.managementTitle')}</h2>
+        <p className="text-sm text-muted-foreground">{t('inventory.subtitle')}</p>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
-          { label: 'Total Products', value: products.length, icon: Boxes, color: 'from-slate-800 to-black' },
-          { label: 'Total Stock Value', value: `৳${totalValue.toFixed(2)}`, icon: PackageCheck, color: 'from-blue-500 to-cyan-600' },
-          { label: 'Low Stock', value: lowStock.length, icon: AlertTriangle, color: 'from-amber-500 to-orange-600' },
-          { label: 'Out of Stock', value: outOfStock.length, icon: PackageX, color: 'from-rose-500 to-pink-600' },
+          { label: t('products.totalProducts'), value: products.length, icon: Boxes, color: 'from-slate-800 to-black' },
+          { label: t('inventory.totalStockValue'), value: `$${totalValue.toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: PackageCheck, color: 'from-blue-500 to-cyan-600' },
+          { label: t('inventory.lowStock'), value: lowStock.length, icon: AlertTriangle, color: 'from-amber-500 to-orange-600' },
+          { label: t('inventory.outOfStock'), value: outOfStock.length, icon: PackageX, color: 'from-rose-500 to-pink-600' },
         ].map((stat, i) => (
           <motion.div key={stat.label} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
             <Card className="p-4">
@@ -86,9 +88,9 @@ export default function InventoryPage() {
 
       {/* Quick actions */}
       <div className="flex gap-2 flex-wrap">
-        <Button size="sm" variant="outline"><ArrowDownToLine className="w-4 h-4 mr-2" /> Stock In</Button>
-        <Button size="sm" variant="outline"><ArrowUpFromLine className="w-4 h-4 mr-2" /> Stock Out</Button>
-        <Button size="sm" variant="outline"><ArrowLeftRight className="w-4 h-4 mr-2" /> Transfer</Button>
+        <Button size="sm" variant="outline"><ArrowDownToLine className="w-4 h-4 mr-2" /> {t('inventory.stockIn')}</Button>
+        <Button size="sm" variant="outline"><ArrowUpFromLine className="w-4 h-4 mr-2" /> {t('inventory.stockOut')}</Button>
+        <Button size="sm" variant="outline"><ArrowLeftRight className="w-4 h-4 mr-2" /> {t('inventory.transfer')}</Button>
       </div>
 
       {/* Tabs */}
@@ -97,13 +99,13 @@ export default function InventoryPage() {
           onClick={() => setTab('overview')}
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${tab === 'overview' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
         >
-          Stock Overview
+          {t('inventory.overview')}
         </button>
         <button
           onClick={() => setTab('movements')}
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${tab === 'movements' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
         >
-          Stock Movements
+          {t('inventory.movements')}
         </button>
       </div>
 
@@ -112,12 +114,12 @@ export default function InventoryPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Product</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Current Stock</TableHead>
-                <TableHead>Min Stock</TableHead>
-                <TableHead>Stock Value</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>{t('inventory.product')}</TableHead>
+                <TableHead>{t('inventory.category')}</TableHead>
+                <TableHead>{t('inventory.currentStock')}</TableHead>
+                <TableHead>{t('inventory.minStockLabel')}</TableHead>
+                <TableHead>{t('inventory.value')}</TableHead>
+                <TableHead>{t('common.status')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -138,14 +140,14 @@ export default function InventoryPage() {
                       <span className="font-medium">{product.stock}</span> {product.unit}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">{product.min_stock}</TableCell>
-                    <TableCell className="font-medium">${(Number(product.cost_price) * Number(product.stock)).toFixed(2)}</TableCell>
+                    <TableCell className="font-medium">${(Number(product.cost_price) * Number(product.stock)).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
                     <TableCell>
                       <Badge className={
                         product.stock <= 0 ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400' :
                         product.min_stock > 0 && product.stock <= product.min_stock ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
                         'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
                       }>
-                        {product.stock <= 0 ? 'Out of Stock' : product.min_stock > 0 && product.stock <= product.min_stock ? 'Low Stock' : 'In Stock'}
+                        {product.stock <= 0 ? t('inventory.outOfStock') : product.min_stock > 0 && product.stock <= product.min_stock ? t('inventory.lowStock') : t('inventory.inStock')}
                       </Badge>
                     </TableCell>
                   </motion.tr>
@@ -158,34 +160,34 @@ export default function InventoryPage() {
         <Card className="overflow-hidden">
           <div className="p-4 border-b border-border flex items-center gap-2">
             <History className="w-4 h-4 text-muted-foreground" />
-            <h3 className="font-semibold text-sm">Recent Stock Movements</h3>
+            <h3 className="font-semibold text-sm">{t('inventory.recentMovements')}</h3>
           </div>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Product</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Quantity</TableHead>
-                <TableHead>Reference</TableHead>
-                <TableHead>Date</TableHead>
+                <TableHead>{t('inventory.product')}</TableHead>
+                <TableHead>{t('inventory.type')}</TableHead>
+                <TableHead>{t('common.quantity')}</TableHead>
+                <TableHead>{t('inventory.reference')}</TableHead>
+                <TableHead>{t('common.date')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {movements.map((m) => (
                 <TableRow key={m.id} className="hover:bg-muted/50">
-                  <TableCell className="font-medium">{m.products?.name || 'Unknown'}</TableCell>
+                  <TableCell className="font-medium">{m.products?.name || t('inventory.unknown')}</TableCell>
                   <TableCell>
                     <Badge variant="outline" className={
                       m.type === 'in' ? 'border-emerald-500 text-emerald-600' :
                       m.type === 'out' ? 'border-rose-500 text-rose-600' :
                       'border-blue-500 text-blue-600'
                     }>
-                      {m.type === 'in' ? 'Stock In' : m.type === 'out' ? 'Stock Out' : 'Adjustment'}
+                      {m.type === 'in' ? t('inventory.stockIn') : m.type === 'out' ? t('inventory.stockOut') : t('inventory.adjustment')}
                     </Badge>
                   </TableCell>
                   <TableCell>{m.quantity}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{m.reference || '-'}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{new Date(m.created_at).toLocaleString()}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{new Date(m.created_at).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US')}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -193,7 +195,7 @@ export default function InventoryPage() {
           {movements.length === 0 && !loading && (
             <div className="py-12 text-center text-muted-foreground">
               <History className="w-12 h-12 mx-auto mb-3 opacity-50" />
-              <p>No stock movements yet</p>
+              <p>{t('inventory.noMovements')}</p>
             </div>
           )}
         </Card>

@@ -181,7 +181,7 @@ export default function AdminLayout({
       }
       router.push('/login');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to sign out.');
+      toast.error(error instanceof Error ? `${t('layout.signOutFailed')}: ${error.message}` : t('layout.signOutFailed'));
     }
   };
 
@@ -261,14 +261,14 @@ export default function AdminLayout({
       <div className="min-h-screen flex items-center justify-center bg-muted/30" role="status">
         <span className="text-sm text-muted-foreground">
           {profileError
-            ? `Unable to verify your account: ${profileError}`
+            ? `${t('layout.accountVerificationFailed')}: ${profileError}`
             : permissionsError
-              ? `Unable to verify permissions: ${permissionsError}`
+              ? `${t('layout.permissionVerificationFailed')}: ${permissionsError}`
             : isAuthLoading || !profile
-              ? 'Checking your account...'
+              ? t('layout.checkingAccount')
               : !user
-                ? 'Redirecting to sign in...'
-                : 'Redirecting to the appropriate account page...'}
+                ? t('layout.redirectingToSignIn')
+                : t('layout.redirectingToAccount')}
         </span>
       </div>
     );
@@ -281,7 +281,7 @@ export default function AdminLayout({
     return (
       <div className="min-h-screen flex items-center justify-center bg-muted/30 p-6" role="alert">
         <p className="text-sm text-muted-foreground">
-          {permissionsError || 'Your account does not have permission to access this section.'}
+          {permissionsError || t('layout.noPermission')}
         </p>
       </div>
     );
@@ -414,7 +414,7 @@ export default function AdminLayout({
               </h1>
               {user && (
                 <Badge variant="secondary" className="hidden sm:flex bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 capitalize">
-                  Signed in
+                  {t('common.signedIn')}
                 </Badge>
               )}
             </div>

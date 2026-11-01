@@ -10,8 +10,10 @@ import { Label } from '@/components/ui/label';
 import { supabase } from '@/lib/supabase';
 import type { Settings } from '@/types';
 import { toast } from 'sonner';
+import { useTranslation } from '@/hooks/use-translation';
 
 export default function SettingsPage() {
+  const { t } = useTranslation();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -27,13 +29,13 @@ export default function SettingsPage() {
         if (error) {
           setSettingsError(error.message);
         } else if (!data) {
-          setSettingsError('No settings are configured for this store yet.');
+          setSettingsError(t('settings.notConfigured'));
         } else {
           setSettings(data);
         }
       } catch (error) {
         if (!current) return;
-        setSettingsError(error instanceof Error ? error.message : 'Unable to load store settings.');
+        setSettingsError(error instanceof Error ? error.message : t('settings.loadFailed'));
       } finally {
         if (current) setLoading(false);
       }
@@ -43,7 +45,7 @@ export default function SettingsPage() {
     return () => {
       current = false;
     };
-  }, []);
+  }, [t]);
 
   const handleSave = async () => {
     if (!settings) return;
@@ -60,12 +62,12 @@ export default function SettingsPage() {
         receipt_footer: settings.receipt_footer,
       }).eq('id', settings.id);
       if (error) {
-        toast.error(`Failed to save settings: ${error.message}`);
+        toast.error(`${t('settings.saveFailed')}: ${error.message}`);
         return;
       }
-      toast.success('Settings saved successfully');
+      toast.success(t('settings.settingsSaved'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to save settings.');
+      toast.error(error instanceof Error ? error.message : t('settings.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -79,7 +81,7 @@ export default function SettingsPage() {
     return (
       <Card className="max-w-3xl p-6">
         <p className="text-sm text-destructive" role="alert">
-          {settingsError ?? 'Store settings could not be loaded.'}
+          {settingsError ?? t('settings.loadFailed')}
         </p>
       </Card>
     );
@@ -88,8 +90,8 @@ export default function SettingsPage() {
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
-        <h2 className="text-2xl font-bold font-heading">Settings</h2>
-        <p className="text-sm text-muted-foreground">Configure your store</p>
+        <h2 className="text-2xl font-bold font-heading">{t('settings.title')}</h2>
+        <p className="text-sm text-muted-foreground">{t('settings.configureStore')}</p>
       </div>
 
       {/* Store Information */}
@@ -99,13 +101,13 @@ export default function SettingsPage() {
             <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-slate-800 to-black flex items-center justify-center">
               <Store className="w-4 h-4 text-white" />
             </div>
-            <h3 className="font-semibold font-heading">Store Information</h3>
+            <h3 className="font-semibold font-heading">{t('settings.storeInformation')}</h3>
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2 col-span-2"><Label>Store Name</Label><Input value={settings.store_name} onChange={(e) => setSettings({ ...settings, store_name: e.target.value })} /></div>
-            <div className="space-y-2"><Label>Email</Label><Input type="email" value={settings.store_email} onChange={(e) => setSettings({ ...settings, store_email: e.target.value })} /></div>
-            <div className="space-y-2"><Label>Phone</Label><Input value={settings.store_phone} onChange={(e) => setSettings({ ...settings, store_phone: e.target.value })} /></div>
-            <div className="space-y-2 col-span-2"><Label>Address</Label><Input value={settings.store_address} onChange={(e) => setSettings({ ...settings, store_address: e.target.value })} /></div>
+            <div className="space-y-2 col-span-2"><Label>{t('settings.storeName')}</Label><Input value={settings.store_name} onChange={(e) => setSettings({ ...settings, store_name: e.target.value })} /></div>
+            <div className="space-y-2"><Label>{t('common.email')}</Label><Input type="email" value={settings.store_email} onChange={(e) => setSettings({ ...settings, store_email: e.target.value })} /></div>
+            <div className="space-y-2"><Label>{t('common.phone')}</Label><Input value={settings.store_phone} onChange={(e) => setSettings({ ...settings, store_phone: e.target.value })} /></div>
+            <div className="space-y-2 col-span-2"><Label>{t('common.address')}</Label><Input value={settings.store_address} onChange={(e) => setSettings({ ...settings, store_address: e.target.value })} /></div>
           </div>
         </Card>
       </motion.div>
@@ -117,12 +119,12 @@ export default function SettingsPage() {
             <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-600 flex items-center justify-center">
               <Percent className="w-4 h-4 text-white" />
             </div>
-            <h3 className="font-semibold font-heading">Currency & Tax</h3>
+            <h3 className="font-semibold font-heading">{t('settings.currencyTax')}</h3>
           </div>
           <div className="grid grid-cols-3 gap-4">
-            <div className="space-y-2"><Label>Currency</Label><Input value={settings.currency} onChange={(e) => setSettings({ ...settings, currency: e.target.value })} /></div>
-            <div className="space-y-2"><Label>Symbol</Label><Input value={settings.currency_symbol} onChange={(e) => setSettings({ ...settings, currency_symbol: e.target.value })} /></div>
-            <div className="space-y-2"><Label>Tax Rate (%)</Label><Input type="number" step="0.01" value={settings.tax_rate} onChange={(e) => setSettings({ ...settings, tax_rate: Number(e.target.value) })} /></div>
+            <div className="space-y-2"><Label>{t('settings.currency')}</Label><Input value={settings.currency} onChange={(e) => setSettings({ ...settings, currency: e.target.value })} /></div>
+            <div className="space-y-2"><Label>{t('settings.currencySymbol')}</Label><Input value={settings.currency_symbol} onChange={(e) => setSettings({ ...settings, currency_symbol: e.target.value })} /></div>
+            <div className="space-y-2"><Label>{t('settings.taxRate')}</Label><Input type="number" step="0.01" value={settings.tax_rate} onChange={(e) => setSettings({ ...settings, tax_rate: Number(e.target.value) })} /></div>
           </div>
         </Card>
       </motion.div>
@@ -134,9 +136,9 @@ export default function SettingsPage() {
             <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
               <Receipt className="w-4 h-4 text-white" />
             </div>
-            <h3 className="font-semibold font-heading">Receipt Settings</h3>
+            <h3 className="font-semibold font-heading">{t('settings.receiptSettings')}</h3>
           </div>
-          <div className="space-y-2"><Label>Receipt Footer Message</Label><Input value={settings.receipt_footer} onChange={(e) => setSettings({ ...settings, receipt_footer: e.target.value })} /></div>
+          <div className="space-y-2"><Label>{t('settings.receiptFooter')}</Label><Input value={settings.receipt_footer} onChange={(e) => setSettings({ ...settings, receipt_footer: e.target.value })} /></div>
         </Card>
       </motion.div>
 
@@ -144,7 +146,7 @@ export default function SettingsPage() {
       <div className="flex justify-end">
         <Button className="bg-gradient-to-r from-slate-800 to-black hover:from-slate-700 hover:to-slate-900 shadow-lg shadow-slate-800/30" onClick={handleSave} disabled={saving}>
           <Save className="w-4 h-4 mr-2" />
-          {saving ? 'Saving...' : 'Save Changes'}
+          {saving ? t('common.saving') : t('settings.saveSettings')}
         </Button>
       </div>
     </div>

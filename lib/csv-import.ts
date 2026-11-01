@@ -182,51 +182,51 @@ export function validateRows(
     let hasError = false;
 
     if (!m.name || !m.name.trim()) {
-      errors.push({ row: row.rowIndex, field: 'name', message: 'Product name is required', productCode: m.product_code });
+      errors.push({ row: row.rowIndex, field: 'name', message: 'csvImport.errors.nameRequired', productCode: m.product_code });
       hasError = true;
     }
 
     if (!m.selling_price || !m.selling_price.trim()) {
-      errors.push({ row: row.rowIndex, field: 'selling_price', message: 'Selling price is required', productName: m.name, productCode: m.product_code });
+      errors.push({ row: row.rowIndex, field: 'selling_price', message: 'csvImport.errors.sellingPriceRequired', productName: m.name, productCode: m.product_code });
       hasError = true;
     } else if (!isNumeric(m.selling_price)) {
-      errors.push({ row: row.rowIndex, field: 'selling_price', message: 'Invalid selling price', productName: m.name, productCode: m.product_code });
+      errors.push({ row: row.rowIndex, field: 'selling_price', message: 'csvImport.errors.sellingPriceInvalid', productName: m.name, productCode: m.product_code });
       hasError = true;
     } else if (Number(m.selling_price) < 0) {
-      errors.push({ row: row.rowIndex, field: 'selling_price', message: 'Selling price cannot be negative', productName: m.name, productCode: m.product_code });
+      errors.push({ row: row.rowIndex, field: 'selling_price', message: 'csvImport.errors.sellingPriceNegative', productName: m.name, productCode: m.product_code });
       hasError = true;
     }
 
     if (m.cost_price && !isNumeric(m.cost_price)) {
-      errors.push({ row: row.rowIndex, field: 'cost_price', message: 'Invalid purchase price', productName: m.name, productCode: m.product_code });
+      errors.push({ row: row.rowIndex, field: 'cost_price', message: 'csvImport.errors.purchasePriceInvalid', productName: m.name, productCode: m.product_code });
       hasError = true;
     }
 
     if (m.wholesale_price && !isNumeric(m.wholesale_price)) {
-      errors.push({ row: row.rowIndex, field: 'wholesale_price', message: 'Invalid wholesale price', productName: m.name, productCode: m.product_code });
+      errors.push({ row: row.rowIndex, field: 'wholesale_price', message: 'csvImport.errors.wholesalePriceInvalid', productName: m.name, productCode: m.product_code });
       hasError = true;
     }
 
     if (m.discount_price && !isNumeric(m.discount_price)) {
-      errors.push({ row: row.rowIndex, field: 'discount_price', message: 'Invalid discount price', productName: m.name, productCode: m.product_code });
+      errors.push({ row: row.rowIndex, field: 'discount_price', message: 'csvImport.errors.discountPriceInvalid', productName: m.name, productCode: m.product_code });
       hasError = true;
     }
 
     if (m.stock && !isNumeric(m.stock)) {
-      errors.push({ row: row.rowIndex, field: 'stock', message: 'Invalid stock value', productName: m.name, productCode: m.product_code });
+      errors.push({ row: row.rowIndex, field: 'stock', message: 'csvImport.errors.stockInvalid', productName: m.name, productCode: m.product_code });
       hasError = true;
     }
 
     if (m.min_stock && !isNumeric(m.min_stock)) {
-      errors.push({ row: row.rowIndex, field: 'min_stock', message: 'Invalid minimum stock value', productName: m.name, productCode: m.product_code });
+      errors.push({ row: row.rowIndex, field: 'min_stock', message: 'csvImport.errors.minimumStockInvalid', productName: m.name, productCode: m.product_code });
       hasError = true;
     } else if (m.min_stock && Number(m.min_stock) < 0) {
-      errors.push({ row: row.rowIndex, field: 'min_stock', message: 'Minimum stock cannot be negative', productName: m.name, productCode: m.product_code });
+      errors.push({ row: row.rowIndex, field: 'min_stock', message: 'csvImport.errors.minimumStockNegative', productName: m.name, productCode: m.product_code });
       hasError = true;
     }
 
     if (m.tax_rate && !isNumeric(m.tax_rate)) {
-      errors.push({ row: row.rowIndex, field: 'tax_rate', message: 'Invalid tax rate', productName: m.name, productCode: m.product_code });
+      errors.push({ row: row.rowIndex, field: 'tax_rate', message: 'csvImport.errors.taxInvalid', productName: m.name, productCode: m.product_code });
       hasError = true;
     }
 
@@ -239,10 +239,10 @@ export function validateRows(
       const lc = m.product_code.toLowerCase();
       if (existingCodes.has(lc)) {
         isDuplicate = true;
-        dupReason = 'Product code already exists';
+        dupReason = 'csvImport.duplicateReasons.productCodeExists';
       } else if (seenCodes.has(lc)) {
         isDuplicate = true;
-        dupReason = 'Duplicate product code in CSV';
+        dupReason = 'csvImport.duplicateReasons.productCodeInFile';
       } else {
         seenCodes.set(lc, row.rowIndex);
       }
@@ -252,10 +252,10 @@ export function validateRows(
       const lc = m.barcode.toLowerCase();
       if (existingBarcodes.has(lc)) {
         isDuplicate = true;
-        dupReason = 'Barcode already exists';
+        dupReason = 'csvImport.duplicateReasons.barcodeExists';
       } else if (seenBarcodes.has(lc)) {
         isDuplicate = true;
-        dupReason = 'Duplicate barcode in CSV';
+        dupReason = 'csvImport.duplicateReasons.barcodeInFile';
       } else {
         seenBarcodes.set(lc, row.rowIndex);
       }
@@ -265,10 +265,10 @@ export function validateRows(
       const lc = m.sku.toLowerCase();
       if (existingSkus.has(lc)) {
         isDuplicate = true;
-        dupReason = 'SKU already exists';
+        dupReason = 'csvImport.duplicateReasons.skuExists';
       } else if (seenSkus.has(lc)) {
         isDuplicate = true;
-        dupReason = 'Duplicate SKU in CSV';
+        dupReason = 'csvImport.duplicateReasons.skuInFile';
       } else {
         seenSkus.set(lc, row.rowIndex);
       }
@@ -291,8 +291,8 @@ export function validateRows(
   return { validRows, errors, duplicates, totalRows: parsed.length };
 }
 
-export function generateTemplateCSV(): string {
-  const headers = FIELD_DEFINITIONS.map((f) => f.label);
+export function generateTemplateCSV(labels?: string[]): string {
+  const headers = labels || FIELD_DEFINITIONS.map((f) => f.label);
   const sampleRow = [
     'T-Shirt', 'TS001', '8901234500011', 'SKU-TS001', 'simple',
     'Gucci', 'T-Shirt', 'Pc(s)', '300', '500', '450', '', '20', '5', 'Premium cotton t-shirt', 'active',
@@ -304,9 +304,9 @@ export function generateTemplateCSV(): string {
 
 export function generateErrorReportCSV(
   errors: ValidationError[],
-  duplicates: Array<{ row: number; name: string; code: string; reason: string }>
+  duplicates: Array<{ row: number; name: string; code: string; reason: string }>,
+  headers = ['Row Number', 'Product Name', 'Product Code', 'Error Type', 'Reason']
 ): string {
-  const headers = ['Row Number', 'Product Name', 'Product Code', 'Error Type', 'Reason'];
   const lines = [headers];
 
   for (const e of errors) {
