@@ -197,6 +197,8 @@ export type SaleItem = {
   discount_amount: number;
   unit_price: number;
   final_unit_price: number;
+  purchase_price: number | null;
+  profit: number | null;
   created_at: string;
 };
 

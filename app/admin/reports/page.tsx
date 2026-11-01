@@ -4,8 +4,8 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import {
-  FileBarChart, DollarSign, ShoppingCart, Package, TrendingUp, Download,
-  Truck, Receipt, Filter, X,
+  FileBarChart, DollarSign, ShoppingCart, Package, TrendingUp,
+  Truck, Receipt, Filter,
 } from 'lucide-react';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -16,16 +16,47 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
-  Popover, PopoverContent, PopoverTrigger,
-} from '@/components/ui/popover';
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
+import { toast } from 'sonner';
 
 type DatePreset = 'today' | 'yesterday' | 'thisWeek' | 'thisMonth' | 'lastMonth' | 'all' | 'custom';
+type ReportFilters = {
+  datePreset: DatePreset;
+  dateFrom: string;
+  dateTo: string;
+  productIds: string[];
+  categoryIds: string[];
+  brandIds: string[];
+  units: string[];
+  customerId: string;
+  paymentMethod: string;
+  status: string;
+  minAmount: string;
+  maxAmount: string;
+};
+type FilterOption = { id: string; name: string };
+
+const EMPTY_FILTERS: ReportFilters = {
+  datePreset: 'all',
+  dateFrom: '',
+  dateTo: '',
+  productIds: [],
+  categoryIds: [],
+  brandIds: [],
+  units: [],
+  customerId: 'all',
+  paymentMethod: 'all',
+  status: 'all',
+  minAmount: '',
+  maxAmount: '',
+};
 
 function toDateInputValue(date: Date): string {
   const y = date.getFullYear();
@@ -50,6 +81,50 @@ function getPresetRange(preset: Exclude<DatePreset, 'all' | 'custom'>): { from: 
   }
 }
 
+function MultiSelectFilter({
+  label,
+  options,
+  selected,
+  onChange,
+  searchPlaceholder,
+}: {
+  label: string;
+  options: FilterOption[];
+  selected: string[];
+  onChange: (selected: string[]) => void;
+  searchPlaceholder: string;
+}) {
+  const [search, setSearch] = useState('');
+  const filteredOptions = options.filter((option) => option.name.toLowerCase().includes(search.toLowerCase()));
+
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      <Input
+        value={search}
+        onChange={(event) => setSearch(event.target.value)}
+        placeholder={searchPlaceholder}
+        aria-label={searchPlaceholder}
+      />
+      <div className="max-h-36 space-y-1 overflow-y-auto rounded-md border p-2">
+        {filteredOptions.length === 0 ? (
+          <p className="px-1 py-2 text-sm text-muted-foreground">No options found</p>
+        ) : filteredOptions.map((option) => (
+          <label key={option.id} className="flex cursor-pointer items-center gap-2 rounded px-1 py-1.5 text-sm hover:bg-muted">
+            <Checkbox
+              checked={selected.includes(option.id)}
+              onCheckedChange={(checked) => onChange(
+                checked ? [...selected, option.id] : selected.filter((id) => id !== option.id)
+              )}
+            />
+            <span className="truncate">{option.name}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
   const [dailyData, setDailyData] = useState<any[]>([]);
@@ -57,38 +132,130 @@ export default function ReportsPage() {
   const [recentSales, setRecentSales] = useState<any[]>([]);
   const [sales, setSales] = useState<any[]>([]);
   const [purchases, setPurchases] = useState<any[]>([]);
+  const [totalProfit, setTotalProfit] = useState<number | null>(null);
 
-  const [datePreset, setDatePreset] = useState<DatePreset>('thisMonth');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('all');
+  const [appliedFilters, setAppliedFilters] = useState<ReportFilters>(() => {
+    const range = getPresetRange('thisMonth');
+    return { ...EMPTY_FILTERS, datePreset: 'thisMonth', dateFrom: range.from, dateTo: range.to };
+  });
+  const [draftFilters, setDraftFilters] = useState<ReportFilters>(appliedFilters);
   const [filterOpen, setFilterOpen] = useState(false);
+  const [products, setProducts] = useState<FilterOption[]>([]);
+  const [categories, setCategories] = useState<FilterOption[]>([]);
+  const [brands, setBrands] = useState<FilterOption[]>([]);
+  const [units, setUnits] = useState<FilterOption[]>([]);
+  const [customers, setCustomers] = useState<FilterOption[]>([]);
+  const [customerSearch, setCustomerSearch] = useState('');
 
   useEffect(() => {
-    if (datePreset !== 'all' && datePreset !== 'custom') {
-      const r = getPresetRange(datePreset);
-      setDateFrom(r.from);
-      setDateTo(r.to);
-    } else if (datePreset === 'all') {
-      setDateFrom('');
-      setDateTo('');
-    }
-  }, [datePreset]);
+    let active = true;
+    void (async () => {
+      const [productsRes, categoriesRes, brandsRes, unitsRes, customersRes] = await Promise.all([
+        supabase.from('products').select('id, name').order('name').limit(1000),
+        supabase.from('categories').select('id, name').order('name').limit(1000),
+        supabase.from('brands').select('id, name').order('name').limit(1000),
+        supabase.from('units').select('id, name, short_name').order('name').limit(1000),
+        supabase.from('customers').select('id, name').order('name').limit(1000),
+      ]);
+      if (!active) return;
+      const failed = [productsRes, categoriesRes, brandsRes, unitsRes, customersRes].find((result) => result.error);
+      if (failed?.error) {
+        toast.error(`Unable to load report filter options: ${failed.error.message}`);
+        return;
+      }
+      setProducts((productsRes.data || []).map((item) => ({ id: item.id, name: item.name })));
+      setCategories((categoriesRes.data || []).map((item) => ({ id: item.id, name: item.name })));
+      setBrands((brandsRes.data || []).map((item) => ({ id: item.id, name: item.name })));
+      setUnits((unitsRes.data || []).map((item) => ({ id: item.short_name, name: item.name })));
+      setCustomers((customersRes.data || []).map((item) => ({ id: item.id, name: item.name })));
+    })().catch((error: unknown) => {
+      if (!active) return;
+      toast.error(`Unable to load report filter options: ${error instanceof Error ? error.message : 'Unexpected error'}`);
+    });
+    return () => { active = false; };
+  }, []);
 
   const loadReports = useCallback(async () => {
     setLoading(true);
     let salesQuery = supabase.from('sales').select('*, customers(name)').order('sale_date', { ascending: false });
-    if (dateFrom) salesQuery = salesQuery.gte('sale_date', localBoundary(dateFrom, false));
-    if (dateTo) salesQuery = salesQuery.lte('sale_date', localBoundary(dateTo, true));
-    if (paymentMethod !== 'all') salesQuery = salesQuery.eq('payment_method', paymentMethod);
+    if (appliedFilters.dateFrom) salesQuery = salesQuery.gte('sale_date', localBoundary(appliedFilters.dateFrom, false));
+    if (appliedFilters.dateTo) salesQuery = salesQuery.lte('sale_date', localBoundary(appliedFilters.dateTo, true));
+    if (appliedFilters.paymentMethod !== 'all') salesQuery = salesQuery.eq('payment_method', appliedFilters.paymentMethod);
+    if (appliedFilters.customerId !== 'all') salesQuery = salesQuery.eq('customer_id', appliedFilters.customerId);
+    if (appliedFilters.status !== 'all') salesQuery = salesQuery.eq('status', appliedFilters.status);
+    if (appliedFilters.minAmount) salesQuery = salesQuery.gte('total', Number(appliedFilters.minAmount));
+    if (appliedFilters.maxAmount) salesQuery = salesQuery.lte('total', Number(appliedFilters.maxAmount));
 
     let purchaseQuery = supabase.from('purchases').select('*, suppliers(name)').order('purchase_date', { ascending: false });
-    if (dateFrom) purchaseQuery = purchaseQuery.gte('purchase_date', localBoundary(dateFrom, false));
-    if (dateTo) purchaseQuery = purchaseQuery.lte('purchase_date', localBoundary(dateTo, true));
+    if (appliedFilters.dateFrom) purchaseQuery = purchaseQuery.gte('purchase_date', localBoundary(appliedFilters.dateFrom, false));
+    if (appliedFilters.dateTo) purchaseQuery = purchaseQuery.lte('purchase_date', localBoundary(appliedFilters.dateTo, true));
 
-    const [salesRes, purchaseRes] = await Promise.all([salesQuery, purchaseQuery]);
+    const hasProductConstraints = appliedFilters.productIds.length > 0 ||
+      appliedFilters.categoryIds.length > 0 || appliedFilters.brandIds.length > 0 ||
+      appliedFilters.units.length > 0;
+    let matchingProductIds: string[] | null = null;
+    if (hasProductConstraints) {
+      let productsQuery = supabase.from('products').select('id');
+      if (appliedFilters.productIds.length) productsQuery = productsQuery.in('id', appliedFilters.productIds);
+      if (appliedFilters.categoryIds.length) productsQuery = productsQuery.in('category_id', appliedFilters.categoryIds);
+      if (appliedFilters.brandIds.length) productsQuery = productsQuery.in('brand_id', appliedFilters.brandIds);
+      if (appliedFilters.units.length) productsQuery = productsQuery.in('unit', appliedFilters.units);
+      const productsResult = await productsQuery;
+      if (productsResult.error) {
+        toast.error(`Unable to filter report products: ${productsResult.error.message}`);
+        setLoading(false);
+        return;
+      }
+      matchingProductIds = (productsResult.data || []).map((product) => product.id);
+      if (matchingProductIds.length) {
+        const saleItemsResult = await supabase.from('sale_items')
+          .select('sale_id')
+          .in('product_id', matchingProductIds);
+        if (saleItemsResult.error) {
+          toast.error(`Unable to filter report sales: ${saleItemsResult.error.message}`);
+          setLoading(false);
+          return;
+        }
+        const matchingSaleIds = Array.from(new Set((saleItemsResult.data || []).map((item) => item.sale_id)));
+        if (matchingSaleIds.length) salesQuery = salesQuery.in('id', matchingSaleIds);
+        else matchingProductIds = [];
+      }
+    }
 
-    const salesData = (salesRes.data || []).filter((s: any) => s.status !== 'cancelled');
+    const [salesRes, purchaseRes, profitRes] = await Promise.all([
+      matchingProductIds?.length === 0
+        ? Promise.resolve({ data: [], error: null })
+        : salesQuery,
+      purchaseQuery,
+      supabase.rpc('get_sales_profit_summary', {
+        p_date_from: appliedFilters.dateFrom ? localBoundary(appliedFilters.dateFrom, false) : null,
+        p_date_to: appliedFilters.dateTo ? localBoundary(appliedFilters.dateTo, true) : null,
+        p_payment_method: appliedFilters.paymentMethod === 'all' ? null : appliedFilters.paymentMethod,
+        p_customer_id: appliedFilters.customerId === 'all' ? null : appliedFilters.customerId,
+        p_status: appliedFilters.status,
+        p_min_amount: appliedFilters.minAmount ? Number(appliedFilters.minAmount) : null,
+        p_max_amount: appliedFilters.maxAmount ? Number(appliedFilters.maxAmount) : null,
+        p_product_ids: appliedFilters.productIds,
+        p_category_ids: appliedFilters.categoryIds,
+        p_brand_ids: appliedFilters.brandIds,
+        p_units: appliedFilters.units,
+      }),
+    ]);
+    if (salesRes.error || purchaseRes.error) {
+      toast.error(`Unable to load reports: ${salesRes.error?.message || purchaseRes.error?.message}`);
+      setLoading(false);
+      return;
+    }
+    if (profitRes.error) {
+      toast.error(`Unable to load sales profit: ${profitRes.error.message}`);
+      setTotalProfit(null);
+    } else {
+      setTotalProfit(Number(profitRes.data || 0));
+    }
+
+    const salesData = (salesRes.data || []).filter((s: any) =>
+      appliedFilters.status !== 'all' || s.status !== 'cancelled'
+    );
     const purchaseData = (purchaseRes.data || []).filter((p: any) => p.status !== 'cancelled');
     setSales(salesData);
     setPurchases(purchaseData);
@@ -108,7 +275,18 @@ export default function ReportsPage() {
     }
     setDailyData(days);
 
-    const itemsRes = await supabase.from('sale_items').select('product_name, quantity, total, price').order('total', { ascending: false }).limit(20);
+    let itemsQuery = supabase.from('sale_items')
+      .select('product_name, quantity, total, price, sale_id, product_id')
+      .order('total', { ascending: false });
+    if (salesData.length) itemsQuery = itemsQuery.in('sale_id', salesData.map((sale: any) => sale.id));
+    else itemsQuery = itemsQuery.eq('sale_id', '00000000-0000-0000-0000-000000000000');
+    if (matchingProductIds?.length) itemsQuery = itemsQuery.in('product_id', matchingProductIds);
+    const itemsRes = await itemsQuery.limit(5000);
+    if (itemsRes.error) {
+      toast.error(`Unable to load top products: ${itemsRes.error.message}`);
+      setLoading(false);
+      return;
+    }
     const productMap: Record<string, { name: string; quantity: number; revenue: number }> = {};
     (itemsRes.data || []).forEach((item: any) => {
       const key = item.product_name;
@@ -119,9 +297,14 @@ export default function ReportsPage() {
     setTopProducts(Object.values(productMap).sort((a, b) => b.revenue - a.revenue).slice(0, 5));
 
     setLoading(false);
-  }, [dateFrom, dateTo, paymentMethod]);
+  }, [appliedFilters]);
 
-  useEffect(() => { loadReports(); }, [loadReports]);
+  useEffect(() => {
+    void loadReports().catch((error: unknown) => {
+      toast.error(`Unable to load reports: ${error instanceof Error ? error.message : 'Unexpected error'}`);
+      setLoading(false);
+    });
+  }, [loadReports]);
 
   const totalSalesAmount = sales.reduce((s: number, sale: any) => s + Number(sale.total), 0);
   const totalDiscount = sales.reduce((s: number, sale: any) => s + Number(sale.discount), 0);
@@ -136,6 +319,7 @@ export default function ReportsPage() {
 
   const salesReportCards = [
     { label: 'Total Sales', value: `৳${totalSalesAmount.toFixed(2)}`, icon: DollarSign, color: 'from-amber-500 to-orange-600' },
+    { label: 'Total Profit', value: totalProfit === null ? '—' : `৳${totalProfit.toFixed(2)}`, icon: Package, color: 'from-emerald-500 to-green-600' },
     { label: 'Total Orders', value: totalOrders.toString(), icon: ShoppingCart, color: 'from-slate-800 to-black' },
     { label: 'Total Discount', value: `৳${totalDiscount.toFixed(2)}`, icon: TrendingUp, color: 'from-blue-500 to-cyan-600' },
     { label: 'Total Due', value: `৳${totalDue.toFixed(2)}`, icon: FileBarChart, color: 'from-rose-500 to-pink-600' },
@@ -148,9 +332,37 @@ export default function ReportsPage() {
     { label: 'Total Due', value: `৳${totalPurchaseDue.toFixed(2)}`, icon: FileBarChart, color: 'from-amber-500 to-orange-600' },
   ];
 
-  const hasFilters = Boolean(dateFrom || dateTo) || paymentMethod !== 'all';
+  const activeFilterCount = [
+    appliedFilters.dateFrom || appliedFilters.dateTo,
+    appliedFilters.productIds.length > 0,
+    appliedFilters.categoryIds.length > 0,
+    appliedFilters.brandIds.length > 0,
+    appliedFilters.units.length > 0,
+    appliedFilters.customerId !== 'all',
+    appliedFilters.paymentMethod !== 'all',
+    appliedFilters.status !== 'all',
+    appliedFilters.minAmount !== '' || appliedFilters.maxAmount !== '',
+  ].filter(Boolean).length;
+  const hasFilters = activeFilterCount > 0;
 
-  const clearFilters = () => { setDatePreset('all'); setDateFrom(''); setDateTo(''); setPaymentMethod('all'); };
+  const updateDraftDatePreset = (preset: DatePreset) => {
+    setDraftFilters((current) => {
+      if (preset === 'all') return { ...current, datePreset: preset, dateFrom: '', dateTo: '' };
+      if (preset === 'custom') return { ...current, datePreset: preset };
+      const range = getPresetRange(preset);
+      return { ...current, datePreset: preset, dateFrom: range.from, dateTo: range.to };
+    });
+  };
+  const resetDraftFilters = () => setDraftFilters(EMPTY_FILTERS);
+  const filteredCustomers = customers.filter((customer) =>
+    customer.name.toLowerCase().includes(customerSearch.toLowerCase())
+  );
+  const productFilterLabels = [
+    ...products.filter((item) => appliedFilters.productIds.includes(item.id)).map((item) => item.name),
+    ...categories.filter((item) => appliedFilters.categoryIds.includes(item.id)).map((item) => item.name),
+    ...brands.filter((item) => appliedFilters.brandIds.includes(item.id)).map((item) => item.name),
+    ...units.filter((item) => appliedFilters.units.includes(item.id)).map((item) => item.name),
+  ];
 
   return (
     <div className="space-y-6">
@@ -161,50 +373,232 @@ export default function ReportsPage() {
         </div>
         <div className="flex gap-2">
           <Link href="/admin/reports/purchase-expense"><Button variant="outline" size="sm">Purchase & Expense Report</Button></Link>
-          <Popover open={filterOpen} onOpenChange={setFilterOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="sm"><Filter className="w-4 h-4 mr-2" /> Filter {hasFilters && <span className="ml-1 rounded-full bg-primary text-primary-foreground px-1.5 text-[10px]">Active</span>}</Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-[min(92vw,380px)] p-4">
-              <div className="mb-3"><h3 className="font-semibold">Report Filters</h3></div>
-              <div className="flex gap-1 flex-wrap mb-3">
-                {(['today', 'yesterday', 'thisWeek', 'thisMonth', 'lastMonth', 'all'] as DatePreset[]).map((p) => (
-                  <Button key={p} size="sm" variant={datePreset === p ? 'default' : 'outline'} className="text-xs whitespace-nowrap" onClick={() => setDatePreset(p)}>
-                    {p === 'thisWeek' ? 'This Week' : p === 'thisMonth' ? 'This Month' : p === 'lastMonth' ? 'Last Month' : p.charAt(0).toUpperCase() + p.slice(1)}
-                  </Button>
-                ))}
-              </div>
-              {datePreset === 'custom' && (
-                <div className="grid grid-cols-2 gap-2 mb-3">
-                  <div><Label className="text-xs">From</Label><Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} /></div>
-                  <div><Label className="text-xs">To</Label><Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} /></div>
+          <Dialog
+            open={filterOpen}
+            onOpenChange={(open) => {
+              if (open) {
+                setDraftFilters(appliedFilters);
+                setCustomerSearch('');
+              }
+              setFilterOpen(open);
+            }}
+          >
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setDraftFilters(appliedFilters);
+                setCustomerSearch('');
+                setFilterOpen(true);
+              }}
+            >
+              <Filter className="mr-2 h-4 w-4" />
+              Advanced Filter{hasFilters ? ` (${activeFilterCount})` : ''}
+            </Button>
+            <DialogContent className="flex max-h-[90vh] w-[calc(100%-1rem)] max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:w-full">
+              <DialogHeader className="border-b px-5 py-4 text-left sm:px-6">
+                <DialogTitle>Advanced Filter</DialogTitle>
+                <DialogDescription>Choose criteria to update the report.</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
+                <section className="space-y-3">
+                  <Label className="text-sm font-semibold">Date Range</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {([
+                      ['today', 'Today'],
+                      ['yesterday', 'Yesterday'],
+                      ['thisWeek', 'This Week'],
+                      ['thisMonth', 'This Month'],
+                      ['custom', 'Custom Date Range'],
+                      ['lastMonth', 'Last Month'],
+                      ['all', 'All Time'],
+                    ] as [DatePreset, string][]).map(([preset, label]) => (
+                      <Button
+                        key={preset}
+                        type="button"
+                        size="sm"
+                        variant={draftFilters.datePreset === preset ? 'default' : 'outline'}
+                        onClick={() => updateDraftDatePreset(preset)}
+                      >
+                        {label}
+                      </Button>
+                    ))}
+                  </div>
+                  {draftFilters.datePreset === 'custom' && (
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="report-from-date">From Date</Label>
+                        <Input
+                          id="report-from-date"
+                          type="date"
+                          value={draftFilters.dateFrom}
+                          max={draftFilters.dateTo || undefined}
+                          onChange={(event) => setDraftFilters((current) => ({ ...current, dateFrom: event.target.value }))}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="report-to-date">To Date</Label>
+                        <Input
+                          id="report-to-date"
+                          type="date"
+                          value={draftFilters.dateTo}
+                          min={draftFilters.dateFrom || undefined}
+                          onChange={(event) => setDraftFilters((current) => ({ ...current, dateTo: event.target.value }))}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </section>
+
+                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                  <MultiSelectFilter
+                    label="Product"
+                    options={products}
+                    selected={draftFilters.productIds}
+                    onChange={(productIds) => setDraftFilters((current) => ({ ...current, productIds }))}
+                    searchPlaceholder="Search products..."
+                  />
+                  <MultiSelectFilter
+                    label="Category"
+                    options={categories}
+                    selected={draftFilters.categoryIds}
+                    onChange={(categoryIds) => setDraftFilters((current) => ({ ...current, categoryIds }))}
+                    searchPlaceholder="Search categories..."
+                  />
+                  <MultiSelectFilter
+                    label="Brand"
+                    options={brands}
+                    selected={draftFilters.brandIds}
+                    onChange={(brandIds) => setDraftFilters((current) => ({ ...current, brandIds }))}
+                    searchPlaceholder="Search brands..."
+                  />
+                  <MultiSelectFilter
+                    label="Unit"
+                    options={units}
+                    selected={draftFilters.units}
+                    onChange={(selectedUnits) => setDraftFilters((current) => ({ ...current, units: selectedUnits }))}
+                    searchPlaceholder="Search units..."
+                  />
                 </div>
-              )}
-              <div><Label className="text-xs">Payment Method</Label>
-                <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm">
-                  <option value="all">All Methods</option><option value="cash">Cash</option><option value="card">Card</option><option value="mobile">Mobile</option><option value="bank">Bank</option><option value="due">Due</option>
-                </select>
+
+                <section className="space-y-2">
+                  <Label htmlFor="report-customer-search">Customer</Label>
+                  <Input
+                    id="report-customer-search"
+                    value={customerSearch}
+                    onChange={(event) => setCustomerSearch(event.target.value)}
+                    placeholder="Search customers..."
+                  />
+                  <select
+                    value={draftFilters.customerId}
+                    onChange={(event) => setDraftFilters((current) => ({ ...current, customerId: event.target.value }))}
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="all">All Customers</option>
+                    {filteredCustomers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
+                  </select>
+                </section>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="report-payment-method">Payment Method</Label>
+                    <select
+                      id="report-payment-method"
+                      value={draftFilters.paymentMethod}
+                      onChange={(event) => setDraftFilters((current) => ({ ...current, paymentMethod: event.target.value }))}
+                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="all">All</option>
+                      <option value="cash">Cash</option>
+                      <option value="card">Card</option>
+                      <option value="mobile">Mobile</option>
+                      <option value="bank">Transfer</option>
+                      <option value="due">Due</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="report-sale-status">Order/Sale Status</Label>
+                    <select
+                      id="report-sale-status"
+                      value={draftFilters.status}
+                      onChange={(event) => setDraftFilters((current) => ({ ...current, status: event.target.value }))}
+                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="all">All</option>
+                      <option value="completed">Completed</option>
+                      <option value="pending">Pending</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
+                  </div>
+                </div>
+
+                <section className="space-y-2">
+                  <Label>Price/Sales Amount</Label>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="report-min-amount" className="text-xs text-muted-foreground">Minimum amount</Label>
+                      <Input
+                        id="report-min-amount"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={draftFilters.minAmount}
+                        onChange={(event) => setDraftFilters((current) => ({ ...current, minAmount: event.target.value }))}
+                        placeholder="No minimum"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="report-max-amount" className="text-xs text-muted-foreground">Maximum amount</Label>
+                      <Input
+                        id="report-max-amount"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={draftFilters.maxAmount}
+                        onChange={(event) => setDraftFilters((current) => ({ ...current, maxAmount: event.target.value }))}
+                        placeholder="No maximum"
+                      />
+                    </div>
+                  </div>
+                </section>
               </div>
-              <div className="flex justify-between mt-4">
-                <Button variant="ghost" size="sm" onClick={clearFilters}>Clear All</Button>
-                <Button size="sm" onClick={() => setFilterOpen(false)}>Apply</Button>
-              </div>
-            </PopoverContent>
-          </Popover>
+              <DialogFooter className="border-t px-5 py-4 sm:px-6">
+                <Button variant="ghost" onClick={resetDraftFilters}>Reset</Button>
+                <Button variant="outline" onClick={() => setFilterOpen(false)}>Cancel</Button>
+                <Button
+                  onClick={() => {
+                    if (draftFilters.minAmount && draftFilters.maxAmount &&
+                      Number(draftFilters.minAmount) > Number(draftFilters.maxAmount)) {
+                      toast.error('Minimum amount cannot exceed maximum amount.');
+                      return;
+                    }
+                    setAppliedFilters(draftFilters);
+                    setFilterOpen(false);
+                  }}
+                >
+                  Apply Filter
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
       {hasFilters && (
         <div className="flex flex-wrap items-center gap-2">
-          {(dateFrom || dateTo) && <span className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs">{dateFrom || 'Start'} – {dateTo || 'Today'}</span>}
-          {paymentMethod !== 'all' && <span className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs capitalize">Payment: {paymentMethod}<button onClick={() => setPaymentMethod('all')}><X className="w-3 h-3" /></button></span>}
+          {(appliedFilters.dateFrom || appliedFilters.dateTo) && <span className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs">{appliedFilters.dateFrom || 'Start'} – {appliedFilters.dateTo || 'Today'}</span>}
+          {appliedFilters.paymentMethod !== 'all' && <span className="rounded-full bg-muted px-3 py-1 text-xs capitalize">Payment: {appliedFilters.paymentMethod === 'bank' ? 'Transfer' : appliedFilters.paymentMethod}</span>}
+          {appliedFilters.customerId !== 'all' && <span className="rounded-full bg-muted px-3 py-1 text-xs">Customer: {customers.find((customer) => customer.id === appliedFilters.customerId)?.name || 'Selected'}</span>}
+          {appliedFilters.status !== 'all' && <span className="rounded-full bg-muted px-3 py-1 text-xs capitalize">Status: {appliedFilters.status}</span>}
+          {productFilterLabels.length > 0 && <span className="rounded-full bg-muted px-3 py-1 text-xs">{productFilterLabels.length} product filter{productFilterLabels.length === 1 ? '' : 's'}</span>}
+          {(appliedFilters.minAmount || appliedFilters.maxAmount) && <span className="rounded-full bg-muted px-3 py-1 text-xs">Amount: {appliedFilters.minAmount || '0'} – {appliedFilters.maxAmount || 'Any'}</span>}
         </div>
       )}
 
       {/* Sales Report Cards */}
       <div>
         <h3 className="text-lg font-semibold mb-3">Sales Report / বিক্রয়</h3>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
           {salesReportCards.map((stat, i) => (
             <motion.div key={stat.label} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
               <Card className="p-5">
@@ -219,6 +613,9 @@ export default function ReportsPage() {
             </motion.div>
           ))}
         </div>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Profit uses saved sale-time costs; older sales without cost snapshots are excluded.
+        </p>
       </div>
 
       {/* Purchase Report Cards */}

@@ -48,23 +48,10 @@ export default function InventoryPage() {
     setLoading(false);
   }
 
-  const lowStock = products.filter((p) => p.stock > 0 && p.stock < p.min_stock);
+  const lowStock = products.filter((p) => p.min_stock > 0 && p.stock > 0 && p.stock <= p.min_stock);
   const outOfStock = products.filter((p) => p.stock <= 0);
   const totalValue = products.reduce((sum, p) => sum + Number(p.cost_price) * Number(p.stock), 0);
   const totalStock = products.reduce((sum, p) => sum + Number(p.stock), 0);
-
-  const handleStockAdjust = async (product: Product, delta: number, type: string) => {
-    const newStock = Math.max(0, Number(product.stock) + delta);
-    await supabase.from('products').update({ stock: newStock }).eq('id', product.id);
-    await supabase.from('stock_movements').insert({
-      product_id: product.id,
-      type,
-      quantity: Math.abs(delta),
-      note: type === 'in' ? 'Stock received' : type === 'out' ? 'Stock removed' : 'Adjustment',
-    });
-    toast.success('Stock updated');
-    loadData();
-  };
 
   return (
     <div className="space-y-6">
@@ -131,14 +118,13 @@ export default function InventoryPage() {
                 <TableHead>Min Stock</TableHead>
                 <TableHead>Stock Value</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <TableRow key={i}>
-                    {Array.from({ length: 7 }).map((_, j) => (
+                    {Array.from({ length: 6 }).map((_, j) => (
                       <TableCell key={j}><div className="h-4 bg-muted rounded animate-pulse" /></TableCell>
                     ))}
                   </TableRow>
@@ -156,21 +142,11 @@ export default function InventoryPage() {
                     <TableCell>
                       <Badge className={
                         product.stock <= 0 ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400' :
-                        product.stock < product.min_stock ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
+                        product.min_stock > 0 && product.stock <= product.min_stock ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
                         'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
                       }>
-                        {product.stock <= 0 ? 'Out of Stock' : product.stock < product.min_stock ? 'Low Stock' : 'In Stock'}
+                        {product.stock <= 0 ? 'Out of Stock' : product.min_stock > 0 && product.stock <= product.min_stock ? 'Low Stock' : 'In Stock'}
                       </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button size="sm" variant="outline" className="h-8" onClick={() => handleStockAdjust(product, 10, 'in')}>
-                          <ArrowDownToLine className="w-3 h-3 mr-1" /> +10
-                        </Button>
-                        <Button size="sm" variant="outline" className="h-8" onClick={() => handleStockAdjust(product, -1, 'out')}>
-                          <ArrowUpFromLine className="w-3 h-3 mr-1" /> -1
-                        </Button>
-                      </div>
                     </TableCell>
                   </motion.tr>
                 ))

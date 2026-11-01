@@ -30,10 +30,15 @@ import { toast } from 'sonner';
 type CartEntry = {
   product_id: string;
   name: string;
+  unit: string;
   quantity: number;
   cost_price: number;
   total: number;
 };
+
+function unitAllowsDecimalQuantity(unit: string): boolean {
+  return /^(kg|g|gram|grams|liter|litre|l|ml|meter|metre|m|cm|mm)$/i.test(unit.trim());
+}
 
 type DatePreset = 'all' | 'today' | 'yesterday' | 'thisWeek' | 'thisMonth' | 'custom';
 type StatusFilter = 'all' | 'received' | 'pending' | 'cancelled';
@@ -171,12 +176,14 @@ export default function PurchasesPage() {
           : c
       ));
     } else {
-      setCart([...cart, { product_id: product.id, name: product.name, quantity: 1, cost_price: product.cost_price, total: product.cost_price }]);
+      setCart([...cart, { product_id: product.id, name: product.name, unit: product.unit, quantity: 1, cost_price: product.cost_price, total: product.cost_price }]);
     }
   };
 
   const updateQty = (id: string, qty: number) => {
-    if (qty < 1) return;
+    const item = cart.find((entry) => entry.product_id === id);
+    if (!item || !Number.isFinite(qty) || qty < 1) return;
+    if (!unitAllowsDecimalQuantity(item.unit) && !Number.isInteger(qty)) return;
     setCart(cart.map((c) => (c.product_id === id ? { ...c, quantity: qty, total: qty * c.cost_price } : c)));
   };
 
@@ -506,7 +513,22 @@ export default function PurchasesPage() {
                               <span className="text-xs text-muted-foreground">x</span>
                               <div className="flex items-center gap-1">
                                 <Button size="icon" variant="outline" className="h-6 w-6" onClick={() => updateQty(item.product_id, item.quantity - 1)}><Minus className="w-3 h-3" /></Button>
-                                <span className="w-8 text-center text-sm">{item.quantity}</span>
+                                <Input
+                                  type="number"
+                                  min="1"
+                                  step={unitAllowsDecimalQuantity(item.unit) ? 'any' : '1'}
+                                  value={item.quantity}
+                                  aria-label={`Quantity for ${item.name}`}
+                                  onChange={(event) => {
+                                    if (event.target.value === '') return;
+                                    const quantity = Number(event.target.value);
+                                    if (Number.isFinite(quantity) && quantity >= 1 &&
+                                      (unitAllowsDecimalQuantity(item.unit) || Number.isInteger(quantity))) {
+                                      updateQty(item.product_id, quantity);
+                                    }
+                                  }}
+                                  className="h-6 w-12 px-1 text-center text-sm [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                />
                                 <Button size="icon" variant="outline" className="h-6 w-6" onClick={() => updateQty(item.product_id, item.quantity + 1)}><Plus className="w-3 h-3" /></Button>
                               </div>
                             </div>

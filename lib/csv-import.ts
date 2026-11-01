@@ -220,6 +220,9 @@ export function validateRows(
     if (m.min_stock && !isNumeric(m.min_stock)) {
       errors.push({ row: row.rowIndex, field: 'min_stock', message: 'Invalid minimum stock value', productName: m.name, productCode: m.product_code });
       hasError = true;
+    } else if (m.min_stock && Number(m.min_stock) < 0) {
+      errors.push({ row: row.rowIndex, field: 'min_stock', message: 'Minimum stock cannot be negative', productName: m.name, productCode: m.product_code });
+      hasError = true;
     }
 
     if (m.tax_rate && !isNumeric(m.tax_rate)) {
@@ -366,7 +369,7 @@ export function rowToProductData(
     tax_rate: m.tax_rate ? Number(m.tax_rate) || 0 : 0,
     tax_type: 'exclusive',
     stock: m.stock ? Number(m.stock) || 0 : 0,
-    min_stock: m.min_stock ? Number(m.min_stock) || 5 : 5,
+    min_stock: m.min_stock ? Number(m.min_stock) : 0,
     warehouse: m.warehouse?.trim() || null,
     rack_shelf: m.rack_shelf?.trim() || null,
     image_url: null,

@@ -105,7 +105,7 @@ export default function ProductsPage() {
     description: '', short_description: '', product_notes: '',
     cost_price: '', selling_price: '', wholesale_price: '', discount_price: '',
     tax_rate: '0', tax_type: 'exclusive',
-    stock: '0', min_stock: '5', warehouse: '', rack_shelf: '',
+    stock: '0', min_stock: '0', warehouse: '', rack_shelf: '',
     image_url: '' as string | null, status: 'active',
   });
   const [variants, setVariants] = useState<VariantRow[]>([]);
@@ -149,7 +149,7 @@ export default function ProductsPage() {
       const matchesType = typeFilter === 'all' || p.product_type === typeFilter;
       let matchesStock = true;
       if (stockFilter === 'in') matchesStock = p.stock > p.min_stock;
-      else if (stockFilter === 'low') matchesStock = p.stock > 0 && p.stock <= p.min_stock;
+      else if (stockFilter === 'low') matchesStock = p.min_stock > 0 && p.stock > 0 && p.stock <= p.min_stock;
       else if (stockFilter === 'out') matchesStock = p.stock <= 0;
       return matchesSearch && matchesBrand && matchesCategory && matchesType && matchesStock;
     });
@@ -191,7 +191,7 @@ export default function ProductsPage() {
       description: '', short_description: '', product_notes: '',
       cost_price: '', selling_price: '', wholesale_price: '', discount_price: '',
       tax_rate: '0', tax_type: 'exclusive',
-      stock: '0', min_stock: '5', warehouse: '', rack_shelf: '',
+      stock: '0', min_stock: '0', warehouse: '', rack_shelf: '',
       image_url: null, status: 'active',
     });
     setVariants([]);
@@ -249,7 +249,7 @@ export default function ProductsPage() {
     if (!formData.selling_price || Number(formData.selling_price) < 0) return 'বিক্রয় মূল্য সঠিক নয়';
     if (formData.cost_price && Number(formData.cost_price) < 0) return 'ক্রয় মূল্য নেতিবাচক হতে পারে না';
     if (Number(formData.stock) < 0) return 'স্টক নেতিবাচক হতে পারে না';
-    if (Number(formData.min_stock) < 0) return 'অ্যালার্ট লিমিট নেতিবাচক হতে পারে না';
+    if (!Number.isFinite(Number(formData.min_stock)) || Number(formData.min_stock) < 0) return 'অ্যালার্ট লিমিট সঠিক নয়';
     return null;
   };
 
@@ -289,7 +289,7 @@ export default function ProductsPage() {
       tax_rate: Number(formData.tax_rate) || 0,
       tax_type: formData.tax_type,
       stock: Number(formData.stock) || 0,
-      min_stock: Number(formData.min_stock) || 5,
+      min_stock: Number(formData.min_stock),
       warehouse: formData.warehouse || null,
       rack_shelf: formData.rack_shelf || null,
       image_url: formData.image_url || null,
@@ -475,7 +475,7 @@ export default function ProductsPage() {
 
   const getStockBadge = (p: Product) => {
     if (p.stock <= 0) return <Badge className="bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400">স্টক নেই</Badge>;
-    if (p.stock <= p.min_stock) return <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">স্বল্প স্টক</Badge>;
+    if (p.min_stock > 0 && p.stock <= p.min_stock) return <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">স্বল্প স্টক</Badge>;
     return <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">ইন স্টক</Badge>;
   };
 
@@ -899,7 +899,7 @@ export default function ProductsPage() {
                   </div>
                   <div className="space-y-2">
                     <Label>অ্যালার্ট/স্বল্প স্টক লিমিট</Label>
-                    <Input type="number" min="0" value={formData.min_stock} onChange={(e) => setFormData({ ...formData, min_stock: e.target.value })} placeholder="5" />
+                    <Input type="number" min="0" value={formData.min_stock} onChange={(e) => setFormData({ ...formData, min_stock: e.target.value })} placeholder="0" />
                   </div>
                   <div className="space-y-2">
                     <Label>ওয়্যারহাউস/স্টোর</Label>

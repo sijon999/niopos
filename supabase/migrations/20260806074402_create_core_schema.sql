@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS products (
   unit text DEFAULT 'pcs',
   tax_rate numeric DEFAULT 0,
   stock numeric DEFAULT 0,
-  min_stock numeric DEFAULT 5,
+  min_stock numeric DEFAULT 0,
   image_url text,
   status text DEFAULT 'active',
   created_at timestamptz DEFAULT now(),

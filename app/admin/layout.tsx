@@ -9,7 +9,6 @@ import {
   ShoppingCart,
   Package,
   Boxes,
-  Tags,
   Users,
   Truck,
   FileBarChart,
@@ -29,7 +28,6 @@ import {
   Store,
   Barcode as BarcodeIcon,
   ChevronRight,
-  Ruler,
   Globe,
   ClipboardCheck,
   Gift,
@@ -196,7 +194,12 @@ export default function AdminLayout({
     : [
         { href: '/admin/dashboard', labelKey: 'navigation.dashboard', icon: LayoutDashboard },
         { href: '/admin/pos', labelKey: 'navigation.pos', icon: ShoppingCart },
-        { href: '/admin/products', labelKey: 'navigation.products', icon: Package },
+        { href: '/admin/products', labelKey: 'navigation.product', icon: Package, children: [
+          { href: '/admin/products', labelKey: 'navigation.product' },
+          { href: '/admin/brands', labelKey: 'navigation.brands' },
+          { href: '/admin/categories', labelKey: 'navigation.categories' },
+          { href: '/admin/units', labelKey: 'navigation.units' },
+        ] },
         { href: '/admin/inventory', labelKey: 'navigation.inventory', icon: Boxes },
         { href: '/admin/stock-reconciliation', labelKey: 'navigation.stockReconciliation', icon: ClipboardCheck },
         { href: '/admin/barcode', labelKey: 'navigation.barcode', icon: BarcodeIcon, children: [
@@ -204,9 +207,6 @@ export default function AdminLayout({
           { href: '/admin/barcode/scan', labelKey: 'navigation.scanBarcode' },
           { href: '/admin/barcode/history', labelKey: 'navigation.barcodeHistory' },
         ] },
-        { href: '/admin/categories', labelKey: 'navigation.categories', icon: Tags },
-        { href: '/admin/brands', labelKey: 'navigation.brands', icon: Store },
-        { href: '/admin/units', labelKey: 'navigation.units', icon: Ruler },
         { href: '/admin/customers', labelKey: 'navigation.customers', icon: Users },
         { href: '/admin/discount-offers', labelKey: 'navigation.discountOffers', icon: Gift },
         { href: '/admin/suppliers', labelKey: 'navigation.suppliers', icon: Truck },
@@ -218,15 +218,31 @@ export default function AdminLayout({
         { href: '/admin/settings', labelKey: 'navigation.settings', icon: Settings },
       ];
 
-  const visibleNavItems = navItems.filter((item) => {
-    if (superAdminOnlyPath(item.href)) return profile?.role === 'super_admin';
-    const permission = routePermission(item.href);
-    return !permission || hasPermission(permission);
-  });
-  const currentPage = visibleNavItems.find((item) => pathname === item.href || pathname.startsWith(item.href + '/'));
+  const visibleNavItems = navItems
+    .map((item) => item.children
+      ? {
+          ...item,
+          children: item.children.filter((child) => {
+            const permission = routePermission(child.href);
+            return !permission || hasPermission(permission);
+          }),
+        }
+      : item)
+    .filter((item) => {
+      if (superAdminOnlyPath(item.href)) return profile?.role === 'super_admin';
+      const permission = routePermission(item.href);
+      return !permission || hasPermission(permission) || Boolean(item.children?.length);
+    });
+  const currentPage = visibleNavItems
+    .flatMap((item) => [item, ...(item.children ?? [])])
+    .find((item) => pathname === item.href || pathname.startsWith(item.href + '/'));
   const barcodeExpanded = pathname.startsWith('/admin/barcode');
   const [barcodeOpen, setBarcodeOpen] = useState(false);
   useEffect(() => { if (barcodeExpanded) setBarcodeOpen(true); }, [barcodeExpanded]);
+  const productExpanded = ['/admin/products', '/admin/brands', '/admin/categories', '/admin/units']
+    .some((route) => pathname === route || pathname.startsWith(`${route}/`));
+  const [productOpen, setProductOpen] = useState(productExpanded);
+  useEffect(() => { if (productExpanded) setProductOpen(true); }, [pathname, productExpanded]);
 
   const switchLanguage = (newLocale: Locale) => {
     setLocale(newLocale);
@@ -294,26 +310,31 @@ export default function AdminLayout({
 
         <nav className="p-3 space-y-1 overflow-y-auto h-[calc(100vh-4rem)] scrollbar-thin">
           {visibleNavItems.map((item) => {
-            const isActive = pathname === item.href || (item.children ? pathname.startsWith(item.href + '/') : pathname.startsWith(item.href + '/'));
+            const isActive = pathname === item.href || (item.children
+              ? item.children.some((child) => pathname === child.href || pathname.startsWith(child.href + '/'))
+              : pathname.startsWith(item.href + '/'));
             if (item.children) {
+              const submenuOpen = item.href === '/admin/products' ? productOpen : barcodeOpen;
+              const setSubmenuOpen = item.href === '/admin/products' ? setProductOpen : setBarcodeOpen;
               return (
                 <div key={item.href}>
                   <button
-                    onClick={() => setBarcodeOpen(!barcodeOpen)}
+                    onClick={() => setSubmenuOpen(!submenuOpen)}
+                    aria-expanded={submenuOpen}
                     className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all w-full ${
-                      barcodeExpanded
+                      isActive
                         ? 'bg-gradient-to-r from-slate-800 to-black text-white shadow-md shadow-slate-800/20'
                         : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                     }`}
                   >
                     <item.icon className="w-4 h-4 shrink-0" />
                     {t(item.labelKey)}
-                    <ChevronRight className={`w-4 h-4 ml-auto transition-transform ${barcodeOpen ? 'rotate-90' : ''}`} />
+                    <ChevronRight className={`w-4 h-4 ml-auto transition-transform ${submenuOpen ? 'rotate-90' : ''}`} />
                   </button>
-                  {barcodeOpen && (
+                  {submenuOpen && (
                     <div className="ml-4 mt-1 space-y-0.5">
                       {item.children.map((child) => {
-                        const childActive = pathname === child.href;
+                        const childActive = pathname === child.href || pathname.startsWith(child.href + '/');
                         return (
                           <Link
                             key={child.href}

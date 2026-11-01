@@ -41,6 +41,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/providers';
+import { toast } from 'sonner';
 
 const fmt = (n: number) => `৳${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -81,6 +82,7 @@ export default function DashboardPage() {
         invoicesRes, customerDueRes, supplierDueRes,
         stockRes,
         recentSalesRes,
+        todayProfitRes,
       ] = await Promise.all([
         supabase.from('sales').select('total, sale_date').gte('sale_date', todayStart),
         supabase.from('sales').select('total, due_amount').eq('payment_status', 'due').gte('sale_date', todayStart),
@@ -100,6 +102,19 @@ export default function DashboardPage() {
         supabase.from('suppliers').select('total_due'),
         supabase.from('products').select('stock, cost_price, selling_price'),
         supabase.from('sales').select('*, customers(name), employees(name), sale_items(*)').order('sale_date', { ascending: false }).limit(5),
+        supabase.rpc('get_sales_profit_summary', {
+          p_date_from: todayStart,
+          p_date_to: null,
+          p_payment_method: null,
+          p_customer_id: null,
+          p_status: 'completed',
+          p_min_amount: null,
+          p_max_amount: null,
+          p_product_ids: [],
+          p_category_ids: [],
+          p_brand_ids: [],
+          p_units: [],
+        }),
       ]);
 
       const todaySales = todaySalesRes.data?.reduce((sum, s) => sum + Number(s.total), 0) || 0;
@@ -117,12 +132,16 @@ export default function DashboardPage() {
       const totalCustomerDue = customerDueRes.data?.reduce((sum, c) => sum + Number(c.total_due || 0), 0) || 0;
       const totalSupplierDue = supplierDueRes.data?.reduce((sum, s) => sum + Number(s.total_due || 0), 0) || 0;
 
-      // Net profit = total (sales + income) - invoice due - expenses
-      const netProfit = (todaySales + income) - todayDueSales - expenses;
+      if (todayProfitRes.error) {
+        toast.error(`Unable to load today's sales profit: ${todayProfitRes.error.message}`);
+      }
+      const netProfit = todayProfitRes.error
+        ? null
+        : Number(todayProfitRes.data || 0) + income - expenses;
 
       const statBoxes: StatBox[] = [
         { label: 'Total Sales', labelBn: 'মোট বিক্রি', value: fmt(todaySales), icon: ShoppingCart, color: 'from-slate-800 to-black' },
-        { label: 'Net Profit', labelBn: 'নেট প্রফিট', value: fmt(netProfit), icon: TrendingUp, color: 'from-emerald-500 to-green-600' },
+        { label: 'Net Profit', labelBn: 'নেট প্রফিট', value: netProfit === null ? '—' : fmt(netProfit), icon: TrendingUp, color: 'from-emerald-500 to-green-600' },
         { label: 'Due Sales', labelBn: 'বাকি বিক্রি', value: fmt(todayDueSales), icon: CreditCard, color: 'from-amber-500 to-orange-600' },
         { label: 'Expenses', labelBn: 'ব্যয়', value: fmt(expenses), icon: CreditCard, color: 'from-rose-500 to-pink-600' },
         { label: 'Income', labelBn: 'আয়', value: fmt(income), icon: HandCoins, color: 'from-teal-500 to-cyan-600' },

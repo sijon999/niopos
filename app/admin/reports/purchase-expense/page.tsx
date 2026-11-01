@@ -20,10 +20,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Table,
   TableBody,
@@ -36,7 +35,7 @@ import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 
 type TransactionType = 'all' | 'purchase' | 'expense';
-type DatePreset = 'all' | 'today' | 'yesterday' | 'last7' | 'lastMonth' | 'thisMonth' | 'lastYear' | 'custom';
+type DatePreset = 'all' | 'today' | 'yesterday' | 'thisWeek' | 'last7' | 'lastMonth' | 'thisMonth' | 'lastYear' | 'custom';
 
 type ReportRow = {
   id: string;
@@ -56,6 +55,8 @@ type ReportRow = {
 
 type SupplierOption = { id: string; name: string; phone: string | null };
 type CategoryOption = { id: string; name: string };
+type ProductOption = { id: string; name: string };
+type BrandOption = { id: string; name: string };
 
 type AppliedFilters = {
   from: string;
@@ -63,7 +64,13 @@ type AppliedFilters = {
   type: TransactionType;
   payment: string;
   supplier: string;
-  category: string;
+  productIds: string[];
+  productCategory: string;
+  brand: string;
+  expenseCategory: string;
+  status: string;
+  minAmount: string;
+  maxAmount: string;
   search: string;
 };
 
@@ -74,7 +81,13 @@ const EMPTY_FILTERS: AppliedFilters = {
   type: 'all',
   payment: 'all',
   supplier: 'all',
-  category: 'all',
+  productIds: [],
+  productCategory: 'all',
+  brand: 'all',
+  expenseCategory: 'all',
+  status: 'all',
+  minAmount: '',
+  maxAmount: '',
   search: '',
 };
 
@@ -87,10 +100,6 @@ function toDateInputValue(date: Date): string {
 
 function startOfDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function endOfDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
 }
 
 function localBoundary(value: string, end: boolean): string {
@@ -127,6 +136,11 @@ function getPresetRange(preset: Exclude<DatePreset, 'custom'>): { from: string; 
       return { from: toDateInputValue(today), to: toDateInputValue(today) };
     case 'yesterday':
       return { from: toDateInputValue(yesterday), to: toDateInputValue(yesterday) };
+    case 'thisWeek': {
+      const monday = new Date(today);
+      monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+      return { from: toDateInputValue(monday), to: toDateInputValue(today) };
+    }
     case 'last7': {
       const from = new Date(today);
       from.setDate(from.getDate() - 6);
@@ -152,10 +166,80 @@ function getPresetRange(preset: Exclude<DatePreset, 'custom'>): { from: string; 
   }
 }
 
+function MultiSelectOptions({
+  label,
+  options,
+  selected,
+  onChange,
+  searchPlaceholder,
+}: {
+  label: string;
+  options: { id: string; name: string }[];
+  selected: string[];
+  onChange: (selected: string[]) => void;
+  searchPlaceholder: string;
+}) {
+  const [search, setSearch] = useState('');
+  const visibleOptions = options.filter((option) => option.name.toLowerCase().includes(search.toLowerCase()));
+
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={searchPlaceholder} />
+      <div className="max-h-36 space-y-1 overflow-y-auto rounded-md border p-2">
+        {visibleOptions.length === 0 ? (
+          <p className="px-1 py-2 text-sm text-muted-foreground">No options found</p>
+        ) : visibleOptions.map((option) => (
+          <label key={option.id} className="flex cursor-pointer items-center gap-2 rounded px-1 py-1.5 text-sm hover:bg-muted">
+            <Checkbox
+              checked={selected.includes(option.id)}
+              onCheckedChange={(checked) => onChange(
+                checked ? [...selected, option.id] : selected.filter((id) => id !== option.id)
+              )}
+            />
+            <span className="truncate">{option.name}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+async function findMatchingPurchaseIds(
+  filters: Pick<AppliedFilters, 'type' | 'productIds' | 'productCategory' | 'brand'>
+): Promise<{ ids: string[] | null; error: string | null }> {
+  if (filters.type !== 'purchase' ||
+    (filters.productIds.length === 0 && filters.productCategory === 'all' && filters.brand === 'all')) {
+    return { ids: null, error: null };
+  }
+
+  let productQuery = supabase.from('products').select('id');
+  if (filters.productIds.length) productQuery = productQuery.in('id', filters.productIds);
+  if (filters.productCategory !== 'all') productQuery = productQuery.eq('category_id', filters.productCategory);
+  if (filters.brand !== 'all') productQuery = productQuery.eq('brand_id', filters.brand);
+  const { data: matchingProducts, error: productError } = await productQuery;
+  if (productError) return { ids: null, error: `Could not filter products: ${productError.message}` };
+  if (!matchingProducts?.length) return { ids: [], error: null };
+
+  const { data: purchaseItems, error: purchaseItemsError } = await supabase
+    .from('purchase_items')
+    .select('purchase_id')
+    .in('product_id', matchingProducts.map((product) => product.id))
+    .not('purchase_id', 'is', null);
+  if (purchaseItemsError) return { ids: null, error: `Could not filter purchase items: ${purchaseItemsError.message}` };
+  return {
+    ids: Array.from(new Set((purchaseItems || []).map((item) => item.purchase_id))),
+    error: null,
+  };
+}
+
 export default function PurchaseExpenseReportPage() {
   const [rows, setRows] = useState<ReportRow[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
   const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const [productCategories, setProductCategories] = useState<CategoryOption[]>([]);
+  const [brands, setBrands] = useState<BrandOption[]>([]);
+  const [products, setProducts] = useState<ProductOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [totalRows, setTotalRows] = useState(0);
@@ -163,24 +247,35 @@ export default function PurchaseExpenseReportPage() {
   const [page, setPage] = useState(1);
   const [filterOpen, setFilterOpen] = useState(false);
   const [datePreset, setDatePreset] = useState<DatePreset>('all');
+  const [appliedDatePreset, setAppliedDatePreset] = useState<DatePreset>('all');
+  const [supplierSearch, setSupplierSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [draft, setDraft] = useState<AppliedFilters>(EMPTY_FILTERS);
   const [applied, setApplied] = useState<AppliedFilters>(EMPTY_FILTERS);
 
   useEffect(() => {
     async function loadOptions(): Promise<void> {
-      const [supplierResult, categoryResult] = await Promise.all([
+      const [supplierResult, categoryResult, productCategoryResult, brandResult, productResult] = await Promise.all([
         supabase.from('suppliers').select('id, name, phone').eq('status', 'active').order('name'),
         supabase.from('expense_categories').select('id, name').order('name'),
+        supabase.from('categories').select('id, name').order('name'),
+        supabase.from('brands').select('id, name').order('name'),
+        supabase.from('products').select('id, name').order('name').limit(1000),
       ]);
-      if (supplierResult.error || categoryResult.error) {
-        toast.error('Could not load filter options');
+      const failed = [supplierResult, categoryResult, productCategoryResult, brandResult, productResult].find((result) => result.error);
+      if (failed?.error) {
+        toast.error(`Could not load filter options: ${failed.error.message}`);
         return;
       }
       setSuppliers(supplierResult.data || []);
       setCategories(categoryResult.data || []);
+      setProductCategories(productCategoryResult.data || []);
+      setBrands(brandResult.data || []);
+      setProducts(productResult.data || []);
     }
-    loadOptions();
+    loadOptions().catch((error: unknown) => {
+      toast.error(`Could not load filter options: ${error instanceof Error ? error.message : 'Unexpected error'}`);
+    });
   }, []);
 
   useEffect(() => {
@@ -196,6 +291,13 @@ export default function PurchaseExpenseReportPage() {
 
   const loadRows = useCallback(async (): Promise<void> => {
     setLoading(true);
+    const { ids: matchingPurchaseIds, error: productFilterError } = await findMatchingPurchaseIds(applied);
+    if (productFilterError) {
+      toast.error(productFilterError);
+      setLoading(false);
+      return;
+    }
+
     let query = supabase
       .from('purchase_expense_report')
       .select('*', { count: 'exact' })
@@ -206,7 +308,12 @@ export default function PurchaseExpenseReportPage() {
     if (applied.type !== 'all') query = query.eq('transaction_type', applied.type);
     if (applied.payment !== 'all') query = query.eq('payment_method', applied.payment);
     if (applied.supplier !== 'all') query = query.eq('supplier_id', applied.supplier);
-    if (applied.category !== 'all') query = query.eq('category_id', applied.category);
+    if (applied.expenseCategory !== 'all') query = query.eq('category_id', applied.expenseCategory);
+    if (applied.status !== 'all') query = query.eq('status', applied.status);
+    if (applied.minAmount) query = query.gte('amount', Number(applied.minAmount));
+    if (applied.maxAmount) query = query.lte('amount', Number(applied.maxAmount));
+    if (matchingPurchaseIds?.length) query = query.in('id', matchingPurchaseIds);
+    else if (matchingPurchaseIds && matchingPurchaseIds.length === 0) query = query.eq('id', '00000000-0000-0000-0000-000000000000');
     if (applied.search) {
       const value = safeSearch(applied.search);
       query = query.or(`party_name.ilike.%${value}%,party_phone.ilike.%${value}%,reference_no.ilike.%${value}%,category_name.ilike.%${value}%`);
@@ -219,8 +326,12 @@ export default function PurchaseExpenseReportPage() {
       p_type: applied.type,
       p_payment: applied.payment,
       p_supplier: applied.supplier === 'all' ? null : applied.supplier,
-      p_category: applied.category === 'all' ? null : applied.category,
+      p_category: applied.expenseCategory === 'all' ? null : applied.expenseCategory,
       p_search: applied.search || null,
+      p_status: applied.status,
+      p_min_amount: applied.minAmount ? Number(applied.minAmount) : null,
+      p_max_amount: applied.maxAmount ? Number(applied.maxAmount) : null,
+      p_purchase_ids: matchingPurchaseIds,
     });
     const [{ data, error, count }, { data: summaryData, error: summaryError }] = await Promise.all([
       query.range(from, from + PAGE_SIZE - 1),
@@ -246,15 +357,30 @@ export default function PurchaseExpenseReportPage() {
   }, [applied, page]);
 
   useEffect(() => {
-    loadRows();
+    loadRows().catch((error: unknown) => {
+      toast.error(`Could not load transactions: ${error instanceof Error ? error.message : 'Unexpected error'}`);
+      setLoading(false);
+    });
   }, [loadRows]);
 
   const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
   const pageStart = totalRows === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const pageEnd = Math.min(page * PAGE_SIZE, totalRows);
 
-  const draftDirty = draft.from !== applied.from || draft.to !== applied.to || draft.type !== applied.type || draft.payment !== applied.payment || draft.supplier !== applied.supplier || draft.category !== applied.category;
-  const hasFilters = Boolean(applied.search || applied.from || applied.to || applied.type !== 'all' || applied.payment !== 'all' || applied.supplier !== 'all' || applied.category !== 'all');
+  const activeFilterCount = [
+    applied.search,
+    applied.from || applied.to,
+    applied.type !== 'all',
+    applied.payment !== 'all',
+    applied.supplier !== 'all',
+    applied.productIds.length > 0,
+    applied.productCategory !== 'all',
+    applied.brand !== 'all',
+    applied.expenseCategory !== 'all',
+    applied.status !== 'all',
+    applied.minAmount !== '' || applied.maxAmount !== '',
+  ].filter(Boolean).length;
+  const hasFilters = activeFilterCount > 0;
 
   const updatePreset = (preset: DatePreset): void => {
     setDatePreset(preset);
@@ -263,19 +389,62 @@ export default function PurchaseExpenseReportPage() {
     setDraft((current) => ({ ...current, ...range }));
   };
 
+  const setDraftType = (type: TransactionType): void => {
+    setDraft((current) => ({
+      ...current,
+      type,
+      ...(type === 'purchase'
+        ? { expenseCategory: 'all' }
+        : type === 'expense'
+          ? {
+              payment: 'all',
+              supplier: 'all',
+              productIds: [],
+              productCategory: 'all',
+              brand: 'all',
+              status: 'all',
+            }
+          : {
+              payment: 'all',
+              supplier: 'all',
+              productIds: [],
+              productCategory: 'all',
+              brand: 'all',
+              expenseCategory: 'all',
+              status: 'all',
+            }),
+    }));
+  };
+
+  const resetDraftFilters = (): void => {
+    setDraft(EMPTY_FILTERS);
+    setDatePreset('all');
+  };
+
   const applyFilters = (): void => {
     if (draft.from && draft.to && draft.to < draft.from) {
       toast.error('The end date cannot be earlier than the start date');
       return;
     }
-    setApplied((current) => ({ ...draft, search: current.search }));
+    if (draft.minAmount && Number(draft.minAmount) < 0 ||
+      draft.maxAmount && Number(draft.maxAmount) < 0) {
+      toast.error('Amounts cannot be negative');
+      return;
+    }
+    if (draft.minAmount && draft.maxAmount && Number(draft.minAmount) > Number(draft.maxAmount)) {
+      toast.error('Minimum amount cannot exceed maximum amount');
+      return;
+    }
+    setApplied(draft);
+    setSearchInput(draft.search);
+    setAppliedDatePreset(datePreset);
     setPage(1);
     setFilterOpen(false);
   };
 
   const cancelFilters = (): void => {
     setDraft(applied);
-    setDatePreset(applied.from || applied.to ? 'custom' : 'all');
+    setDatePreset(appliedDatePreset);
     setFilterOpen(false);
   };
 
@@ -284,19 +453,48 @@ export default function PurchaseExpenseReportPage() {
     setApplied(EMPTY_FILTERS);
     setSearchInput('');
     setDatePreset('all');
+    setAppliedDatePreset('all');
     setPage(1);
   };
 
   const removeFilter = (key: keyof AppliedFilters): void => {
-    const next = { ...applied, [key]: key === 'type' || key === 'payment' ? 'all' : '' } as AppliedFilters;
+    const next: AppliedFilters = key === 'type'
+      ? {
+          ...applied,
+          type: 'all',
+          payment: 'all',
+          supplier: 'all',
+          productIds: [],
+          productCategory: 'all',
+          brand: 'all',
+          expenseCategory: 'all',
+          status: 'all',
+        }
+      : {
+          ...applied,
+          [key]: key === 'payment' || key === 'supplier' || key === 'productCategory' ||
+            key === 'brand' || key === 'expenseCategory' || key === 'status'
+            ? 'all'
+            : key === 'productIds' ? [] : '',
+        };
     setApplied(next);
     setDraft(next);
     if (key === 'search') setSearchInput('');
+    if (key === 'from' || key === 'to') {
+      setDatePreset('all');
+      setAppliedDatePreset('all');
+    }
     setPage(1);
   };
 
   const exportRows = async (): Promise<void> => {
     setExporting(true);
+    const { ids: matchingPurchaseIds, error: productFilterError } = await findMatchingPurchaseIds(applied);
+    if (productFilterError) {
+      toast.error(productFilterError);
+      setExporting(false);
+      return;
+    }
     let query = supabase
       .from('purchase_expense_report')
       .select('*')
@@ -306,7 +504,12 @@ export default function PurchaseExpenseReportPage() {
     if (applied.type !== 'all') query = query.eq('transaction_type', applied.type);
     if (applied.payment !== 'all') query = query.eq('payment_method', applied.payment);
     if (applied.supplier !== 'all') query = query.eq('supplier_id', applied.supplier);
-    if (applied.category !== 'all') query = query.eq('category_id', applied.category);
+    if (applied.expenseCategory !== 'all') query = query.eq('category_id', applied.expenseCategory);
+    if (applied.status !== 'all') query = query.eq('status', applied.status);
+    if (applied.minAmount) query = query.gte('amount', Number(applied.minAmount));
+    if (applied.maxAmount) query = query.lte('amount', Number(applied.maxAmount));
+    if (matchingPurchaseIds?.length) query = query.in('id', matchingPurchaseIds);
+    else if (matchingPurchaseIds && matchingPurchaseIds.length === 0) query = query.eq('id', '00000000-0000-0000-0000-000000000000');
     if (applied.search) {
       const value = safeSearch(applied.search);
       query = query.or(`party_name.ilike.%${value}%,party_phone.ilike.%${value}%,reference_no.ilike.%${value}%,category_name.ilike.%${value}%`);
@@ -326,7 +529,7 @@ export default function PurchaseExpenseReportPage() {
       row.party_name || '',
       row.party_phone || '',
       row.category_name || '',
-      row.payment_method || 'Other',
+      row.payment_method === 'bank' ? 'Transfer' : row.payment_method || 'Other',
       Number(row.amount).toFixed(2),
       row.status || '',
     ]);
@@ -382,52 +585,180 @@ export default function PurchaseExpenseReportPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Search supplier, phone, invoice, PO or reference..." className="pl-9" />
           </div>
-          <Popover open={filterOpen} onOpenChange={(open) => { setFilterOpen(open); if (open) setDraft(applied); }}>
-            <PopoverTrigger asChild>
-              <Button variant="outline" className="lg:w-auto"><Filter className="w-4 h-4 mr-2" /> Filter {hasFilters && <span className="ml-2 rounded-full bg-primary text-primary-foreground px-2 text-xs">Active</span>}</Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-[min(92vw,420px)] p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div><h3 className="font-semibold">Advanced Filters</h3><p className="text-xs text-muted-foreground">Narrow down purchases and expenses</p></div>
-                <button onClick={cancelFilters} className="text-muted-foreground hover:text-foreground" aria-label="Close filters"><X className="w-4 h-4" /></button>
+          <Dialog
+            open={filterOpen}
+            onOpenChange={(open) => {
+              if (open) {
+                setDraft(applied);
+                setDatePreset(appliedDatePreset);
+                setSupplierSearch('');
+                setFilterOpen(true);
+              } else cancelFilters();
+            }}
+          >
+            <Button
+              variant="outline"
+              className="lg:w-auto"
+              onClick={() => {
+                setDraft(applied);
+                setDatePreset(appliedDatePreset);
+                setSupplierSearch('');
+                setFilterOpen(true);
+              }}
+            >
+              <Filter className="mr-2 h-4 w-4" /> Advanced Filter{activeFilterCount ? ` (${activeFilterCount})` : ''}
+            </Button>
+            <DialogContent className="flex max-h-[90vh] w-[calc(100%-1rem)] max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:w-full">
+              <DialogHeader className="border-b px-5 py-4 text-left sm:px-6">
+                <DialogTitle>Advanced Filter</DialogTitle>
+                <DialogDescription>Filter purchase and expense transactions.</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
+                <section className="space-y-3">
+                  <Label className="text-sm font-semibold">Date Range</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {([
+                      ['today', 'Today'],
+                      ['yesterday', 'Yesterday'],
+                      ['thisWeek', 'This Week'],
+                      ['thisMonth', 'This Month'],
+                      ['custom', 'Custom Date Range'],
+                    ] as [DatePreset, string][]).map(([preset, label]) => (
+                      <Button key={preset} type="button" size="sm" variant={datePreset === preset ? 'default' : 'outline'} onClick={() => updatePreset(preset)}>
+                        {label}
+                      </Button>
+                    ))}
+                  </div>
+                  {datePreset === 'custom' && (
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="outflow-from-date">From Date</Label>
+                        <Input id="outflow-from-date" type="date" value={draft.from} max={draft.to || undefined} onChange={(event) => { setDatePreset('custom'); setDraft((current) => ({ ...current, from: event.target.value })); }} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="outflow-to-date">To Date</Label>
+                        <Input id="outflow-to-date" type="date" value={draft.to} min={draft.from || undefined} onChange={(event) => { setDatePreset('custom'); setDraft((current) => ({ ...current, to: event.target.value })); }} />
+                      </div>
+                    </div>
+                  )}
+                </section>
+
+                <div className="space-y-2">
+                  <Label htmlFor="outflow-type">Report Type</Label>
+                  <select id="outflow-type" value={draft.type} onChange={(event) => setDraftType(event.target.value as TransactionType)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                    <option value="all">Purchase & Expense</option>
+                    <option value="purchase">Purchase</option>
+                    <option value="expense">Expense</option>
+                  </select>
+                </div>
+
+                {(draft.type === 'all' || draft.type === 'purchase') && (
+                  <>
+                    <Separator />
+                    <h3 className="font-semibold">Purchase Filters</h3>
+                    <div className="space-y-2">
+                      <Label htmlFor="supplier-search">Supplier</Label>
+                      <Input id="supplier-search" value={supplierSearch} onChange={(event) => setSupplierSearch(event.target.value)} placeholder="Search suppliers..." />
+                      <select value={draft.supplier} onChange={(event) => setDraft((current) => ({ ...current, ...(event.target.value === 'all' ? {} : { type: 'purchase' as const, expenseCategory: 'all' }), supplier: event.target.value }))} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                        <option value="all">All Suppliers</option>
+                        {suppliers.filter((supplier) => supplier.name.toLowerCase().includes(supplierSearch.toLowerCase())).map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
+                      </select>
+                    </div>
+                    <MultiSelectOptions
+                      label="Product"
+                      options={products}
+                      selected={draft.productIds}
+                      onChange={(productIds) => setDraft((current) => ({ ...current, ...(productIds.length ? { type: 'purchase' as const, expenseCategory: 'all' } : {}), productIds }))}
+                      searchPlaceholder="Search products..."
+                    />
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="purchase-category">Category</Label>
+                        <select id="purchase-category" value={draft.productCategory} onChange={(event) => setDraft((current) => ({ ...current, ...(event.target.value === 'all' ? {} : { type: 'purchase' as const, expenseCategory: 'all' }), productCategory: event.target.value }))} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                          <option value="all">All Categories</option>
+                          {productCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="purchase-brand">Brand</Label>
+                        <select id="purchase-brand" value={draft.brand} onChange={(event) => setDraft((current) => ({ ...current, ...(event.target.value === 'all' ? {} : { type: 'purchase' as const, expenseCategory: 'all' }), brand: event.target.value }))} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                          <option value="all">All Brands</option>
+                          {brands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="outflow-payment">Payment Method</Label>
+                        <select id="outflow-payment" value={draft.payment} onChange={(event) => setDraft((current) => ({ ...current, ...(event.target.value === 'all' ? {} : { type: 'purchase' as const, expenseCategory: 'all' }), payment: event.target.value }))} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                          <option value="all">All</option><option value="cash">Cash</option><option value="card">Card</option><option value="mobile">Mobile</option><option value="bank">Transfer</option><option value="due">Due</option>
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="purchase-status">Purchase Status</Label>
+                        <select id="purchase-status" value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, ...(event.target.value === 'all' ? {} : { type: 'purchase' as const, expenseCategory: 'all' }), status: event.target.value }))} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                          <option value="all">All</option><option value="received">Completed</option><option value="pending">Pending</option><option value="cancelled">Cancelled</option>
+                        </select>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {(draft.type === 'all' || draft.type === 'expense') && (
+                  <>
+                    <Separator />
+                    <h3 className="font-semibold">Expense Filters</h3>
+                    <div className="space-y-2">
+                      <Label htmlFor="expense-category">Expense Category / Type</Label>
+                      <select id="expense-category" value={draft.expenseCategory} onChange={(event) => setDraft((current) => ({
+                        ...current,
+                        ...(event.target.value === 'all' ? {} : {
+                          type: 'expense' as const,
+                          payment: 'all',
+                          supplier: 'all',
+                          productIds: [],
+                          productCategory: 'all',
+                          brand: 'all',
+                          status: 'all',
+                        }),
+                        expenseCategory: event.target.value,
+                      }))} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                        <option value="all">All Categories</option>
+                        {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="expense-payment">Payment Method</Label>
+                      <select id="expense-payment" value="all" disabled className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60">
+                        <option value="all">All</option><option value="cash">Cash</option><option value="card">Card</option><option value="mobile">Mobile</option><option value="bank">Transfer</option><option value="cash">Cash</option><option value="card">Card</option><option value="mobile">Mobile</option><option value="bank">Transfer</option>
+                      </select>
+                      <p className="text-xs text-muted-foreground">Payment method is not stored for expense records, so this filter applies to purchase records only.</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Added-by information is not available in the expense records.</p>
+                  </>
+                )}
+
+                <section className="space-y-2">
+                  <Label>Amount</Label>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="outflow-min-amount" className="text-xs text-muted-foreground">Minimum Amount</Label>
+                      <Input id="outflow-min-amount" type="number" min="0" step="0.01" value={draft.minAmount} onChange={(event) => setDraft((current) => ({ ...current, minAmount: event.target.value }))} placeholder="No minimum" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="outflow-max-amount" className="text-xs text-muted-foreground">Maximum Amount</Label>
+                      <Input id="outflow-max-amount" type="number" min="0" step="0.01" value={draft.maxAmount} onChange={(event) => setDraft((current) => ({ ...current, maxAmount: event.target.value }))} placeholder="No maximum" />
+                    </div>
+                  </div>
+                </section>
               </div>
-              <div className="flex gap-1 overflow-x-auto pb-1 mb-4">
-                {(['today', 'last7', 'thisMonth', 'lastMonth', 'lastYear', 'all'] as DatePreset[]).map((preset) => (
-                  <Button key={preset} type="button" size="sm" variant={datePreset === preset ? 'default' : 'outline'} className="whitespace-nowrap text-xs" onClick={() => updatePreset(preset)}>
-                    {preset === 'last7' ? 'Last 7 Days' : preset === 'thisMonth' ? 'This Month' : preset === 'lastMonth' ? 'Last Month' : preset === 'lastYear' ? 'Last Year' : preset === 'today' ? 'Today' : 'All Time'}
-                  </Button>
-                ))}
-              </div>
-              <div className="grid grid-cols-5 gap-1 mb-4">
-                {(['today', 'last7', 'thisMonth', 'quarter', 'year'] as const).map((tab) => (
-                  <Button key={tab} type="button" size="sm" variant="ghost" className="text-xs" onClick={() => {
-                    if (tab === 'quarter') {
-                      const now = new Date();
-                      const startMonth = Math.floor(now.getMonth() / 3) * 3;
-                      setDatePreset('custom');
-                      setDraft((current) => ({ ...current, from: toDateInputValue(new Date(now.getFullYear(), startMonth, 1)), to: toDateInputValue(now) }));
-                    } else if (tab === 'year') {
-                      const now = new Date();
-                      setDatePreset('custom');
-                      setDraft((current) => ({ ...current, from: `${now.getFullYear()}-01-01`, to: toDateInputValue(now) }));
-                    } else updatePreset(tab === 'today' ? 'today' : tab === 'last7' ? 'last7' : 'thisMonth');
-                  }}>{tab[0].toUpperCase() + tab.slice(1)}</Button>
-                ))}
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1"><Label className="text-xs">From Date</Label><Input type="date" value={draft.from} onChange={(event) => { setDatePreset('custom'); setDraft({ ...draft, from: event.target.value }); }} /></div>
-                <div className="space-y-1"><Label className="text-xs">To Date</Label><Input type="date" value={draft.to} min={draft.from || undefined} onChange={(event) => { setDatePreset('custom'); setDraft({ ...draft, to: event.target.value }); }} /></div>
-              </div>
-              <Separator className="my-4" />
-              <div className="space-y-3">
-                <div className="space-y-1"><Label className="text-xs">Transaction Type</Label><select value={draft.type} onChange={(event) => setDraft({ ...draft, type: event.target.value as TransactionType })} className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"><option value="all">All</option><option value="purchase">Purchase</option><option value="expense">Expense</option></select></div>
-                <div className="space-y-1"><Label className="text-xs">Payment Method</Label><select value={draft.payment} onChange={(event) => setDraft({ ...draft, payment: event.target.value })} className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"><option value="all">All</option><option value="cash">Cash</option><option value="card">Card</option><option value="mobile">Mobile Banking</option><option value="other">Other</option></select></div>
-                {(draft.type === 'all' || draft.type === 'purchase') && <div className="space-y-1"><Label className="text-xs">Supplier</Label><select value={draft.supplier} onChange={(event) => setDraft({ ...draft, supplier: event.target.value })} className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"><option value="all">All Suppliers</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></div>}
-                {(draft.type === 'all' || draft.type === 'expense') && <div className="space-y-1"><Label className="text-xs">Expense Category</Label><select value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"><option value="all">All Categories</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></div>}
-              </div>
-              <div className="flex justify-between gap-2 mt-5"><Button variant="ghost" size="sm" onClick={clearAll}>Clear All</Button><div className="flex gap-2"><Button variant="outline" size="sm" onClick={cancelFilters}>Cancel</Button><Button size="sm" onClick={applyFilters} disabled={!draftDirty && !draft.from && !draft.to}>Apply</Button></div></div>
-            </PopoverContent>
-          </Popover>
+              <DialogFooter className="border-t px-5 py-4 sm:px-6">
+                <Button variant="ghost" onClick={resetDraftFilters}>Reset</Button>
+                <Button variant="outline" onClick={cancelFilters}>Cancel</Button>
+                <Button onClick={applyFilters}>Apply Filter</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
 
         {hasFilters && (
@@ -436,8 +767,13 @@ export default function PurchaseExpenseReportPage() {
             {applied.search && <button onClick={() => removeFilter('search')} className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs">Search: {applied.search}<X className="w-3 h-3" /></button>}
             {applied.type !== 'all' && <button onClick={() => removeFilter('type')} className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs capitalize">{applied.type}<X className="w-3 h-3" /></button>}
             {applied.supplier !== 'all' && <button onClick={() => removeFilter('supplier')} className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs">{suppliers.find((supplier) => supplier.id === applied.supplier)?.name || 'Supplier'}<X className="w-3 h-3" /></button>}
-            {applied.category !== 'all' && <button onClick={() => removeFilter('category')} className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs">{categories.find((category) => category.id === applied.category)?.name || 'Category'}<X className="w-3 h-3" /></button>}
-            {applied.payment !== 'all' && <button onClick={() => removeFilter('payment')} className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs capitalize">{applied.payment}<X className="w-3 h-3" /></button>}
+            {applied.productIds.length > 0 && <button onClick={() => removeFilter('productIds')} className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs">{applied.productIds.length} product{applied.productIds.length === 1 ? '' : 's'}<X className="w-3 h-3" /></button>}
+            {applied.productCategory !== 'all' && <button onClick={() => removeFilter('productCategory')} className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs">{productCategories.find((category) => category.id === applied.productCategory)?.name || 'Product Category'}<X className="w-3 h-3" /></button>}
+            {applied.brand !== 'all' && <button onClick={() => removeFilter('brand')} className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs">{brands.find((brand) => brand.id === applied.brand)?.name || 'Brand'}<X className="w-3 h-3" /></button>}
+            {applied.expenseCategory !== 'all' && <button onClick={() => removeFilter('expenseCategory')} className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs">{categories.find((category) => category.id === applied.expenseCategory)?.name || 'Expense Category'}<X className="w-3 h-3" /></button>}
+            {applied.payment !== 'all' && <button onClick={() => removeFilter('payment')} className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs capitalize">{applied.payment === 'bank' ? 'Transfer' : applied.payment}<X className="w-3 h-3" /></button>}
+            {applied.status !== 'all' && <button onClick={() => removeFilter('status')} className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs capitalize">{applied.status === 'received' ? 'Completed' : applied.status}<X className="w-3 h-3" /></button>}
+            {(applied.minAmount || applied.maxAmount) && <button onClick={() => { removeFilter('minAmount'); setApplied((current) => ({ ...current, maxAmount: '' })); setDraft((current) => ({ ...current, maxAmount: '' })); }} className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs">Amount: {applied.minAmount || '0'} – {applied.maxAmount || 'Any'}<X className="w-3 h-3" /></button>}
             <Button variant="link" size="sm" className="h-auto px-1 text-xs" onClick={clearAll}>Clear All</Button>
           </div>
         )}
@@ -448,7 +784,7 @@ export default function PurchaseExpenseReportPage() {
           <Table>
             <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>Invoice / Reference</TableHead><TableHead>Supplier / Party</TableHead><TableHead>Phone</TableHead><TableHead>Category</TableHead><TableHead>Payment</TableHead><TableHead className="text-right">Amount</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
             <TableBody>
-              {loading ? Array.from({ length: 6 }).map((_, index) => <TableRow key={index}>{Array.from({ length: 9 }).map((__, cell) => <TableCell key={cell}><div className="h-4 bg-muted rounded animate-pulse" /></TableCell>)}</TableRow>) : rows.length === 0 ? <TableRow><TableCell colSpan={9} className="py-16 text-center"><FileBarChart className="w-12 h-12 mx-auto mb-3 text-muted-foreground opacity-40" /><p className="font-medium">No transactions found</p><p className="text-sm text-muted-foreground mt-1">Try changing the date, search, or filter options.</p></TableCell></TableRow> : rows.map((row) => <TableRow key={`${row.transaction_type}-${row.id}`} className="hover:bg-muted/50"><TableCell className="text-sm whitespace-nowrap">{formatDate(row.transaction_date)}</TableCell><TableCell><Badge className={row.transaction_type === 'purchase' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' : 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'}>{row.transaction_type === 'purchase' ? 'Purchase' : 'Expense'}</Badge></TableCell><TableCell className="font-medium max-w-48 truncate">{row.reference_no || '-'}</TableCell><TableCell>{row.party_name || '-'}</TableCell><TableCell className="text-sm">{row.party_phone || '-'}</TableCell><TableCell>{row.category_name || '-'}</TableCell><TableCell className="capitalize">{row.payment_method || 'Other'}</TableCell><TableCell className="text-right font-bold">{formatMoney(Number(row.amount))}</TableCell><TableCell><Badge variant="outline" className="capitalize">{row.status || 'completed'}</Badge></TableCell></TableRow>)}
+              {loading ? Array.from({ length: 6 }).map((_, index) => <TableRow key={index}>{Array.from({ length: 9 }).map((__, cell) => <TableCell key={cell}><div className="h-4 bg-muted rounded animate-pulse" /></TableCell>)}</TableRow>) : rows.length === 0 ? <TableRow><TableCell colSpan={9} className="py-16 text-center"><FileBarChart className="w-12 h-12 mx-auto mb-3 text-muted-foreground opacity-40" /><p className="font-medium">No transactions found</p><p className="text-sm text-muted-foreground mt-1">Try changing the date, search, or filter options.</p></TableCell></TableRow> : rows.map((row) => <TableRow key={`${row.transaction_type}-${row.id}`} className="hover:bg-muted/50"><TableCell className="text-sm whitespace-nowrap">{formatDate(row.transaction_date)}</TableCell><TableCell><Badge className={row.transaction_type === 'purchase' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' : 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'}>{row.transaction_type === 'purchase' ? 'Purchase' : 'Expense'}</Badge></TableCell><TableCell className="font-medium max-w-48 truncate">{row.reference_no || '-'}</TableCell><TableCell>{row.party_name || '-'}</TableCell><TableCell className="text-sm">{row.party_phone || '-'}</TableCell><TableCell>{row.category_name || '-'}</TableCell><TableCell className="capitalize">{row.payment_method === 'bank' ? 'Transfer' : row.payment_method || 'Other'}</TableCell><TableCell className="text-right font-bold">{formatMoney(Number(row.amount))}</TableCell><TableCell><Badge variant="outline" className="capitalize">{row.status === 'received' ? 'Completed' : row.status || 'completed'}</Badge></TableCell></TableRow>)}
             </TableBody>
           </Table>
         </div>
