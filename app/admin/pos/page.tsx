@@ -25,6 +25,7 @@ import {
   Delete,
   Keyboard,
   Gift,
+  ChevronDown,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -33,6 +34,14 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Label } from '@/components/ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+  Command,
+  CommandEmpty,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
 import {
   Dialog,
   DialogContent,
@@ -67,6 +76,8 @@ export default function POSPage() {
   const [heldOrdersOpen, setHeldOrdersOpen] = useState(false);
   const [addCustomerOpen, setAddCustomerOpen] = useState(false);
   const [newCustomer, setNewCustomer] = useState({ name: '', phone: '' });
+  const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
+  const [customerSearch, setCustomerSearch] = useState('');
   const [brands, setBrands] = useState<any[]>([]);
   const [eligibleOffers, setEligibleOffers] = useState<EligibleOffer[]>([]);
   const [selectedOffer, setSelectedOffer] = useState<EligibleOffer | null>(null);
@@ -114,7 +125,7 @@ export default function POSPage() {
     async function loadData() {
       const [prodRes, catRes, custRes, brandRes, heldRes] = await Promise.all([
         supabase.from('products').select('*, brands(name), categories(name)').eq('status', 'active').order('name'),
-        supabase.from('categories').select('*').eq('status', 'active').is('parent_id', 'null'),
+        supabase.from('categories').select('*').eq('status', 'active').order('name'),
         supabase.from('customers').select('*').eq('status', 'active').order('name'),
         supabase.from('brands').select('*').eq('status', 'active').order('name'),
         supabase.from('held_orders').select('*').eq('status', 'held').order('hold_time', { ascending: false }),
@@ -198,6 +209,16 @@ export default function POSPage() {
     const tax = Math.round(Math.max(0, afterDiscount) * 0.00 * 100) / 100;
     return Math.round((afterDiscount + tax) * 100) / 100;
   }, [getSubtotal, itemDiscounts, discount, offerDiscount]);
+
+  const customerSearchDigits = customerSearch.replace(/\D/g, '');
+  const filteredCustomers = customers.filter((customer) => {
+    if (customer.name === 'Walk-in Customer') return false;
+    const matchesName = customer.name.toLowerCase().includes(customerSearch.toLowerCase());
+    const matchesPhone =
+      customerSearchDigits.length > 0 &&
+      (customer.phone || '').replace(/\D/g, '').includes(customerSearchDigits);
+    return matchesName || matchesPhone;
+  });
 
   const filteredProducts = products.filter((p) => {
     const matchesSearch =
@@ -391,10 +412,10 @@ export default function POSPage() {
 
         {/* Category + Brand filters */}
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <Button size="sm" variant={selectedCategory === 'all' ? 'default' : 'outline'} onClick={() => setSelectedCategory('all')} className={`h-9 px-3 ${selectedCategory === 'all' ? 'border-0 bg-gradient-to-r from-slate-800 to-black' : ''}`}>All</Button>
-          {categories.map((cat) => (
-            <Button key={cat.id} size="sm" variant={selectedCategory === cat.id ? 'default' : 'outline'} onClick={() => setSelectedCategory(cat.id)} className={`h-9 max-w-full px-3 ${selectedCategory === cat.id ? 'border-0 bg-gradient-to-r from-slate-800 to-black' : ''}`}>{cat.name}</Button>
-          ))}
+          <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="h-9 min-w-[130px] max-w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <option value="all">All Categories</option>
+            {categories.map((cat) => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+          </select>
           <select value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)} className="h-9 min-w-[130px] max-w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <option value="all">All Brands</option>
             {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -460,10 +481,53 @@ export default function POSPage() {
           <div className="space-y-0.5">
             <Label className="flex items-center gap-1 text-[10px] font-medium leading-3 text-muted-foreground sm:text-xs"><UserRound className="h-3 w-3" /> Customer</Label>
             <div className="flex min-w-0 gap-1.5">
-              <select value={selectedCustomer?.id || ''} onChange={(e) => { const c = customers.find((c) => c.id === e.target.value); setCustomer(c || null); }} className="h-7 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                <option value="">Walk-in Customer</option>
-                {customers.filter((c) => c.name !== 'Walk-in Customer').map((c) => <option key={c.id} value={c.id}>{c.name} · {c.phone || ''}</option>)}
-              </select>
+              <Popover open={customerPickerOpen} onOpenChange={(open) => {
+                setCustomerPickerOpen(open);
+                if (!open) setCustomerSearch('');
+              }}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" role="combobox" aria-expanded={customerPickerOpen} className="h-7 min-w-0 flex-1 justify-between px-2 text-xs font-normal">
+                    <span className="truncate">{selectedCustomer ? `${selectedCustomer.name} · ${selectedCustomer.phone || ''}` : 'Walk-in Customer'}</span>
+                    <ChevronDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-0">
+                  <Command shouldFilter={false}>
+                    <CommandInput
+                      placeholder="Search by name or phone..."
+                      value={customerSearch}
+                      onValueChange={setCustomerSearch}
+                      className="h-9 text-xs"
+                    />
+                    <CommandList>
+                      <CommandItem
+                        value="walk-in-customer"
+                        onSelect={() => {
+                          setCustomer(null);
+                          setCustomerPickerOpen(false);
+                        }}
+                      >
+                        Walk-in Customer
+                      </CommandItem>
+                      {filteredCustomers.map((customer) => (
+                        <CommandItem
+                          key={customer.id}
+                          value={customer.id}
+                          onSelect={() => {
+                            setCustomer(customer);
+                            setCustomerPickerOpen(false);
+                          }}
+                        >
+                          <span className="truncate">{customer.name} · {customer.phone || ''}</span>
+                        </CommandItem>
+                      ))}
+                      {customerSearch && filteredCustomers.length === 0 && (
+                        <CommandEmpty>No customers found.</CommandEmpty>
+                      )}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
               <Button variant="outline" size="icon" onClick={() => setAddCustomerOpen(true)} title="Add new customer (F2)" className="h-7 w-7 shrink-0">
                 <UserPlus className="w-4 h-4" />
               </Button>
