@@ -101,11 +101,12 @@ export const usePOSStore = create<POSState>()(
               {
                 product_id: product.id,
                 name: product.name,
+                sku: product.sku,
                 price: product.discount_price || product.selling_price,
                 quantity: 1,
                 stock: product.stock,
                 image_url: product.image_url,
-                discount_type: 'percentage',
+                discount_type: 'fixed',
                 discount_value: 0,
               },
             ],
@@ -149,7 +150,7 @@ export const usePOSStore = create<POSState>()(
 
       setCustomer: (customer) =>
         set({ selectedCustomer: customer, selectedCustomerId: customer?.id ?? null }),
-      setDiscount: (discount) => set({ discount }),
+      setDiscount: (discount) => set({ discount: Math.max(0, discount) }),
       setPaymentMethod: (method) => set({ paymentMethod: method }),
       setSelectedOfferId: (offerId) => set({ selectedOfferId: offerId }),
       setSearchQuery: (query) => set({ searchQuery: query }),
@@ -166,7 +167,7 @@ export const usePOSStore = create<POSState>()(
       getTax: () => {
         const subtotal = get().getSubtotal();
         const itemDiscounts = get().getItemDiscounts();
-        const afterDiscount = subtotal - itemDiscounts - get().discount;
+        const afterDiscount = subtotal - itemDiscounts;
         return Math.round(Math.max(0, afterDiscount) * 0.05 * 100) / 100;
       },
 
@@ -174,7 +175,7 @@ export const usePOSStore = create<POSState>()(
         const subtotal = get().getSubtotal();
         const itemDiscounts = get().getItemDiscounts();
         const tax = get().getTax();
-        return Math.round((subtotal - itemDiscounts - get().discount + tax) * 100) / 100;
+        return Math.round((subtotal - itemDiscounts + tax) * 100) / 100;
       },
     }),
     {

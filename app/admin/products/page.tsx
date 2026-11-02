@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
+import NextImage from 'next/image';
 import { motion } from 'framer-motion';
 import {
   Plus, Search, Edit2, Trash2, Package, Filter, Download, Upload,
@@ -248,7 +249,7 @@ export default function ProductsPage() {
 
   const validateForm = (): string | null => {
     if (!formData.name.trim()) return t('products.nameRequired');
-    if (!formData.selling_price || Number(formData.selling_price) < 0) return t('products.sellingPriceInvalid');
+    if (formData.selling_price && Number(formData.selling_price) < 0) return t('products.sellingPriceInvalid');
     if (formData.cost_price && Number(formData.cost_price) < 0) return t('products.costPriceNegative');
     if (Number(formData.stock) < 0) return t('products.stockNegative');
     if (!Number.isFinite(Number(formData.min_stock)) || Number(formData.min_stock) < 0) return t('products.alertLimitInvalid');
@@ -606,7 +607,7 @@ export default function ProductsPage() {
                         <TableCell className="font-medium">
                           <div className="flex items-center gap-3">
                             {product.image_url ? (
-                              <img src={product.image_url} alt={product.name} className="w-10 h-10 rounded-lg object-cover" />
+                              <NextImage src={product.image_url} alt={product.name} width={40} height={40} className="w-10 h-10 rounded-lg object-cover" />
                             ) : (
                               <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
                                 <Package className="w-5 h-5 text-muted-foreground" />
@@ -709,7 +710,7 @@ export default function ProductsPage() {
                   <Card className="p-4 hover:shadow-md transition-shadow">
                     <div className="flex items-center gap-3">
                       {brand.logo_url ? (
-                        <img src={brand.logo_url} alt={brand.name} className="w-10 h-10 rounded-lg object-cover" />
+                        <NextImage src={brand.logo_url} alt={brand.name} width={40} height={40} className="w-10 h-10 rounded-lg object-cover" />
                       ) : (
                         <div className="w-10 h-10 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center">
                           <Package className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
@@ -827,7 +828,7 @@ export default function ProductsPage() {
                     <Label>{t('products.image')}</Label>
                     {formData.image_url ? (
                       <div className="relative inline-block">
-                        <img src={formData.image_url} alt={t('products.productImage')} className="w-32 h-32 rounded-lg object-cover border" />
+                        <NextImage src={formData.image_url} alt={t('products.productImage')} width={128} height={128} className="w-32 h-32 rounded-lg object-cover border" />
                         <button type="button" onClick={() => setFormData({ ...formData, image_url: null })} className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-rose-500 text-white flex items-center justify-center hover:bg-rose-600 shadow-md">
                           <X className="w-3.5 h-3.5" />
                         </button>
@@ -854,7 +855,7 @@ export default function ProductsPage() {
                     <Input type="number" step="0.01" min="0" value={formData.cost_price} onChange={(e) => setFormData({ ...formData, cost_price: e.target.value })} placeholder="৳500" />
                   </div>
                   <div className="space-y-2">
-                    <Label>{t('products.sellingPrice')} *</Label>
+                    <Label>{t('products.sellingPrice')}</Label>
                     <Input type="number" step="0.01" min="0" value={formData.selling_price} onChange={(e) => setFormData({ ...formData, selling_price: e.target.value })} placeholder="৳800" />
                   </div>
                   <div className="space-y-2">
@@ -1010,7 +1011,7 @@ export default function ProductsPage() {
             <div className="space-y-4">
               <div className="flex items-start gap-4">
                 <div className="w-24 h-24 rounded-lg bg-muted flex items-center justify-center overflow-hidden shrink-0">
-                  {viewProduct.image_url ? <img src={viewProduct.image_url} alt={viewProduct.name} className="w-full h-full object-cover" /> : <Package className="w-12 h-12 text-muted-foreground" />}
+                  {viewProduct.image_url ? <NextImage src={viewProduct.image_url} alt={viewProduct.name} width={96} height={96} className="w-full h-full object-cover" /> : <Package className="w-12 h-12 text-muted-foreground" />}
                 </div>
                 <div className="flex-1">
                   <h3 className="font-semibold text-lg">{viewProduct.name}</h3>

@@ -60,6 +60,9 @@ export default function SettingsPage() {
         currency_symbol: settings.currency_symbol,
         tax_rate: settings.tax_rate,
         receipt_footer: settings.receipt_footer,
+        domain: settings.domain?.trim() || null,
+        trade_license_no: settings.trade_license_no?.trim() || null,
+        tax_no: settings.tax_no?.trim() || null,
       }).eq('id', settings.id);
       if (error) {
         toast.error(`${t('settings.saveFailed')}: ${error.message}`);
@@ -108,6 +111,9 @@ export default function SettingsPage() {
             <div className="space-y-2"><Label>{t('common.email')}</Label><Input type="email" value={settings.store_email} onChange={(e) => setSettings({ ...settings, store_email: e.target.value })} /></div>
             <div className="space-y-2"><Label>{t('common.phone')}</Label><Input value={settings.store_phone} onChange={(e) => setSettings({ ...settings, store_phone: e.target.value })} /></div>
             <div className="space-y-2 col-span-2"><Label>{t('common.address')}</Label><Input value={settings.store_address} onChange={(e) => setSettings({ ...settings, store_address: e.target.value })} /></div>
+            <div className="space-y-2 col-span-2"><Label>{t('settings.domain')} <span className="text-muted-foreground">({t('common.optional')})</span></Label><Input value={settings.domain || ''} onChange={(e) => setSettings({ ...settings, domain: e.target.value })} /></div>
+            <div className="space-y-2"><Label>{t('settings.tradeLicenseNo')} <span className="text-muted-foreground">({t('common.optional')})</span></Label><Input value={settings.trade_license_no || ''} onChange={(e) => setSettings({ ...settings, trade_license_no: e.target.value })} /></div>
+            <div className="space-y-2"><Label>{t('settings.taxNo')} <span className="text-muted-foreground">({t('common.optional')})</span></Label><Input value={settings.tax_no || ''} onChange={(e) => setSettings({ ...settings, tax_no: e.target.value })} /></div>
           </div>
         </Card>
       </motion.div>

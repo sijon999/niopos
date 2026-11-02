@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
+import NextImage from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ScanLine,
@@ -179,7 +180,7 @@ export default function ScanBarcodePage() {
                 {/* Product info */}
                 <div className="flex items-start gap-4 pb-4 border-b">
                   <div className="w-20 h-20 rounded-lg bg-muted flex items-center justify-center overflow-hidden shrink-0">
-                    {foundProduct.image_url ? <img src={foundProduct.image_url} alt={foundProduct.name} className="w-full h-full object-cover" /> : <Package className="w-10 h-10 text-muted-foreground" />}
+                    {foundProduct.image_url ? <NextImage src={foundProduct.image_url} alt={foundProduct.name} width={80} height={80} className="w-full h-full object-cover" /> : <Package className="w-10 h-10 text-muted-foreground" />}
                   </div>
                   <div className="flex-1">
                     <h3 className="font-semibold text-lg">{foundProduct.name}</h3>

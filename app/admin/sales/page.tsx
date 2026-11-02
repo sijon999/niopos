@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ShoppingBag,
@@ -37,6 +38,13 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
+import { ThermalReceipt } from '@/components/thermal-receipt';
+import type {
+  ReceiptCustomer,
+  ReceiptItem,
+  ReceiptSale,
+  ReceiptSettings,
+} from '@/components/thermal-receipt';
 import type { Sale, SaleItem } from '@/types';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/use-translation';
@@ -126,6 +134,13 @@ const payStatusBadgeClass = (paymentStatus: string): string =>
     ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
     : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400';
 
+type HistoricalReceiptData = {
+  sale: ReceiptSale;
+  items: ReceiptItem[];
+  customer: ReceiptCustomer | null;
+  settings: ReceiptSettings;
+};
+
 export default function SalesPage() {
   const { t, locale } = useTranslation();
   const [sales, setSales] = useState<Sale[]>([]);
@@ -140,6 +155,25 @@ export default function SalesPage() {
 
   const [detailSale, setDetailSale] = useState<Sale | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [receiptToPrint, setReceiptToPrint] = useState<HistoricalReceiptData | null>(null);
+  const [preparingReceiptId, setPreparingReceiptId] = useState<string | null>(null);
+  const [printPortalReady, setPrintPortalReady] = useState(false);
+
+  useEffect(() => {
+    setPrintPortalReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!receiptToPrint) return;
+
+    const printTimer = window.setTimeout(() => window.print(), 50);
+    const clearReceipt = (): void => setReceiptToPrint(null);
+    window.addEventListener('afterprint', clearReceipt);
+    return () => {
+      window.clearTimeout(printTimer);
+      window.removeEventListener('afterprint', clearReceipt);
+    };
+  }, [receiptToPrint]);
 
   const loadSales = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -227,8 +261,63 @@ export default function SalesPage() {
     setDetailSale(sale);
   };
 
-  const handlePrint = (): void => {
-    window.print();
+  const handlePrint = async (sale: Sale): Promise<void> => {
+    if (!sale.store_id) {
+      toast.error(t('settings.loadFailed'));
+      return;
+    }
+
+    setPreparingReceiptId(sale.id);
+    const { data: settings, error } = await supabase
+      .from('settings')
+      .select('store_name, store_address, store_phone, store_email, currency_symbol, tax_rate, receipt_footer, domain, trade_license_no, tax_no')
+      .eq('store_id', sale.store_id)
+      .maybeSingle();
+
+    if (error || !settings) {
+      toast.error(t('settings.loadFailed'));
+      setPreparingReceiptId(null);
+      return;
+    }
+
+    const savedItems = sale.sale_items || [];
+    const discount = Number(sale.discount ?? 0);
+    const taxBase = Number(sale.subtotal) - discount;
+    const savedTaxRate = sale.tax_rate_snapshot ?? (
+      taxBase > 0
+        ? Math.round((Number(sale.tax) * 100 / taxBase) * 100) / 100
+        : 0
+    );
+    const receiptSale: ReceiptSale = {
+      ...sale,
+      discount,
+      tax_rate_snapshot: savedTaxRate,
+      currency_symbol_snapshot: sale.currency_symbol_snapshot,
+    };
+    const receiptItems = savedItems.map((item: SaleItem): ReceiptItem => ({
+      id: item.id,
+      name: item.product_name,
+      sku: item.sku_snapshot ?? null,
+      quantity: Number(item.quantity),
+      price: Number(item.unit_price ?? item.price),
+      discount_amount: Number(item.discount_amount ?? item.discount ?? 0),
+      total: Number(item.total),
+    }));
+    const customer = sale.customer_name_snapshot?.trim()
+      ? {
+          name: sale.customer_name_snapshot,
+          phone: sale.customer_phone_snapshot,
+          address: sale.customer_address_snapshot,
+        }
+      : null;
+
+    setReceiptToPrint({
+      sale: receiptSale,
+      items: receiptItems,
+      customer,
+      settings: settings as ReceiptSettings,
+    });
+    setPreparingReceiptId(null);
   };
 
   const handleCancel = async (sale: Sale): Promise<void> => {
@@ -643,7 +732,11 @@ export default function SalesPage() {
               </div>
 
               <DialogFooter className="gap-2">
-                <Button variant="outline" onClick={handlePrint}>
+                <Button
+                  variant="outline"
+                  onClick={() => handlePrint(detailSale)}
+                  disabled={preparingReceiptId === detailSale.id}
+                >
                   <Printer className="w-4 h-4 mr-2" /> {t('pos.printReceipt')}
                 </Button>
                 {detailSale.status === 'completed' && (
@@ -662,6 +755,15 @@ export default function SalesPage() {
           )}
         </DialogContent>
       </Dialog>
+      {printPortalReady && receiptToPrint && createPortal(
+        <ThermalReceipt
+          sale={receiptToPrint.sale}
+          items={receiptToPrint.items}
+          customer={receiptToPrint.customer}
+          settings={receiptToPrint.settings}
+        />,
+        document.body
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import NextImage from 'next/image';
 import { motion } from 'framer-motion';
 import {
   Search,
@@ -204,7 +205,7 @@ export default function BarcodeHistoryPage() {
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-2">
                       {item.products?.image_url ? (
-                        <img src={item.products.image_url} alt={item.product_name || ''} className="w-8 h-8 rounded-lg object-cover" />
+                        <NextImage src={item.products.image_url} alt={item.product_name || ''} width={32} height={32} className="w-8 h-8 rounded-lg object-cover" />
                       ) : (
                         <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center"><Package className="w-4 h-4 text-muted-foreground" /></div>
                       )}

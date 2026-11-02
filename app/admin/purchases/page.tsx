@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import Link from 'next/link';
+import NextImage from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, Receipt, Truck, Package, Search, Trash2, Minus, CheckCircle2,
@@ -474,7 +475,7 @@ export default function PurchasesPage() {
                     return (
                       <div key={product.id} className={`flex items-center gap-3 p-2 rounded-lg border transition-all cursor-pointer ${inCart ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50'}`} onClick={() => addToCart(product)}>
                         <div className="w-9 h-9 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center text-lg shrink-0 overflow-hidden">
-                          {product.image_url ? <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" /> : <Package className="w-4 h-4 text-muted-foreground" />}
+                          {product.image_url ? <NextImage src={product.image_url} alt={product.name} width={36} height={36} className="w-full h-full object-cover" /> : <Package className="w-4 h-4 text-muted-foreground" />}
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium line-clamp-1">{product.name}</p>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
+import NextImage from 'next/image';
 import { motion } from 'framer-motion';
 import {
   ClipboardCheck,
@@ -788,7 +789,7 @@ export default function StockReconciliationPage() {
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-2">
                           {product.image_url ? (
-                            <img src={product.image_url} alt={product.name} className="w-8 h-8 rounded object-cover shrink-0" />
+                            <NextImage src={product.image_url} alt={product.name} width={32} height={32} className="w-8 h-8 rounded object-cover shrink-0" />
                           ) : (
                             <div className="w-8 h-8 rounded bg-muted flex items-center justify-center shrink-0">
                               <Package className="w-4 h-4 text-muted-foreground" />

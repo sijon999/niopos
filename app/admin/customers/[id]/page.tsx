@@ -67,11 +67,6 @@ export default function CustomerProfilePage() {
   const [filters, setFilters] = useState({ dateFrom: '', dateTo: '', product: '', saleId: '', discountType: '', cashier: '' });
   const [showFilters, setShowFilters] = useState(false);
 
-  useEffect(() => {
-    if (!customerId) return;
-    loadData();
-  }, [customerId]);
-
   const loadData = useCallback(async () => {
     const [custRes, assignedRes, usageRes, allOffersRes, summaryRes, historyRes] = await Promise.all([
       supabase.from('customers').select('*').eq('id', customerId).single(),
@@ -106,6 +101,11 @@ export default function CustomerProfilePage() {
     setDiscountHistory((historyRes.data || []) as DiscountHistoryRow[]);
     setLoading(false);
   }, [customerId]);
+
+  useEffect(() => {
+    if (!customerId) return;
+    loadData();
+  }, [customerId, loadData]);
 
   const applyFilters = async () => {
     const { data, error } = await supabase.rpc('get_customer_discount_history', {
@@ -375,7 +375,7 @@ export default function CustomerProfilePage() {
             <div className="space-y-2">
               <Label>Override Expiry (optional)</Label>
               <Input type="date" value={assignForm.expiresAt} onChange={(e) => setAssignForm({ ...assignForm, expiresAt: e.target.value })} />
-              <p className="text-xs text-muted-foreground">Leave empty to use the offer's own end date</p>
+              <p className="text-xs text-muted-foreground">Leave empty to use the offer&apos;s own end date</p>
             </div>
           </div>
           <DialogFooter>

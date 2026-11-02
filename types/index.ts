@@ -161,7 +161,13 @@ export type Employee = {
 export type Sale = {
   id: string;
   invoice_number: string;
+  store_id: string | null;
   customer_id: string | null;
+  customer_name_snapshot: string | null;
+  customer_phone_snapshot: string | null;
+  customer_address_snapshot: string | null;
+  currency_symbol_snapshot: string | null;
+  tax_rate_snapshot: number | null;
   employee_id: string | null;
   subtotal: number;
   discount: number;
@@ -188,6 +194,7 @@ export type SaleItem = {
   sale_id: string;
   product_id: string | null;
   product_name: string;
+  sku_snapshot: string | null;
   quantity: number;
   price: number;
   discount: number;
@@ -274,6 +281,9 @@ export type Settings = {
   tax_rate: number;
   logo_url: string | null;
   receipt_footer: string;
+  domain: string | null;
+  trade_license_no: string | null;
+  tax_no: string | null;
 };
 
 export type SaleReturn = {
@@ -422,6 +432,7 @@ export type BarcodeHistory = {
 export type CartItem = {
   product_id: string;
   name: string;
+  sku?: string | null;
   price: number;
   quantity: number;
   stock: number;

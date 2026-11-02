@@ -24,7 +24,7 @@ export const FIELD_DEFINITIONS: FieldDef[] = [
   { key: 'category', label: 'Category', required: false, aliases: ['category', 'category_name', 'category name', 'ক্যাটাগরি'] },
   { key: 'unit', label: 'Unit', required: false, aliases: ['unit', 'unit_name', 'unit name', 'ইউনিট', 'পরিমাণ'] },
   { key: 'cost_price', label: 'Purchase Price', required: false, numeric: true, aliases: ['purchase_price', 'cost_price', 'purchase price', 'ক্রয় মূল্য'] },
-  { key: 'selling_price', label: 'Selling Price', required: true, numeric: true, aliases: ['selling_price', 'sale_price', 'price', 'selling price', 'বিক্রয় মূল্য'] },
+  { key: 'selling_price', label: 'Selling Price', required: false, numeric: true, aliases: ['selling_price', 'sale_price', 'price', 'selling price', 'বিক্রয় মূল্য'] },
   { key: 'wholesale_price', label: 'Wholesale Price', required: false, numeric: true, aliases: ['wholesale_price', 'wholesale price', 'পাইকারি মূল্য'] },
   { key: 'discount_price', label: 'Discount Price', required: false, numeric: true, aliases: ['discount_price', 'discount price'] },
   { key: 'stock', label: 'Stock', required: false, numeric: true, aliases: ['stock', 'quantity', 'qty', 'opening_stock', 'স্টক'] },
@@ -186,15 +186,14 @@ export function validateRows(
       hasError = true;
     }
 
-    if (!m.selling_price || !m.selling_price.trim()) {
-      errors.push({ row: row.rowIndex, field: 'selling_price', message: 'csvImport.errors.sellingPriceRequired', productName: m.name, productCode: m.product_code });
-      hasError = true;
-    } else if (!isNumeric(m.selling_price)) {
-      errors.push({ row: row.rowIndex, field: 'selling_price', message: 'csvImport.errors.sellingPriceInvalid', productName: m.name, productCode: m.product_code });
-      hasError = true;
-    } else if (Number(m.selling_price) < 0) {
-      errors.push({ row: row.rowIndex, field: 'selling_price', message: 'csvImport.errors.sellingPriceNegative', productName: m.name, productCode: m.product_code });
-      hasError = true;
+    if (m.selling_price?.trim()) {
+      if (!isNumeric(m.selling_price)) {
+        errors.push({ row: row.rowIndex, field: 'selling_price', message: 'csvImport.errors.sellingPriceInvalid', productName: m.name, productCode: m.product_code });
+        hasError = true;
+      } else if (Number(m.selling_price) < 0) {
+        errors.push({ row: row.rowIndex, field: 'selling_price', message: 'csvImport.errors.sellingPriceNegative', productName: m.name, productCode: m.product_code });
+        hasError = true;
+      }
     }
 
     if (m.cost_price && !isNumeric(m.cost_price)) {

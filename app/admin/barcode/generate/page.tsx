@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
+import NextImage from 'next/image';
 import { motion } from 'framer-motion';
 import {
   Search,
@@ -23,6 +24,118 @@ import { supabase } from '@/lib/supabase';
 import { Barcode } from '@/components/barcode';
 import type { Product } from '@/types';
 import { toast } from 'sonner';
+
+type BarcodePrintLabel = {
+  name: string;
+  barcode: string;
+  format: string;
+  price: number;
+};
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function escapeScriptString(value: string): string {
+  return JSON.stringify(value).replace(/</g, '\\u003c');
+}
+
+function printBarcodeLabels(labels: BarcodePrintLabel[], storeName: string): boolean {
+  const win = window.open('', '_blank', 'width=600,height=800');
+  if (!win) return false;
+
+  const labelMarkup = labels.map((label, index) => `
+    <div class="label">
+      ${storeName.trim() ? `<div class="store">${escapeHtml(storeName.trim())}</div>` : ''}
+      <div class="product-name">${escapeHtml(label.name || 'Product')}</div>
+      <div class="price">PRICE: ৳ ${Number(label.price).toLocaleString('en-US')}</div>
+      <div class="barcode-container">
+        <svg id="barcode-${index}"></svg>
+      </div>
+      <div class="barcode-number">${escapeHtml(label.barcode)}</div>
+    </div>
+  `).join('');
+
+  const barcodeScripts = labels.map((label, index) => `
+    JsBarcode("#barcode-${index}", ${escapeScriptString(label.barcode)}, {
+      format: ${escapeScriptString(label.format || 'CODE128')},
+      width: 1.5,
+      height: 35,
+      displayValue: false,
+      margin: 0,
+      lineColor: "#000000",
+      background: "#ffffff"
+    });
+  `).join('');
+
+  win.document.open();
+  win.document.write(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Barcode Labels</title>
+        <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+        <style>
+          @page { size: 50mm 30mm; margin: 0; }
+          * { box-sizing: border-box; }
+          html, body { width: 50mm; margin: 0; padding: 0; background: #fff; }
+          body { font-family: Arial, Helvetica, sans-serif; }
+          .label {
+            width: 50mm; height: 30mm; display: flex; flex-direction: column;
+            align-items: center; justify-content: flex-start; text-align: center;
+            padding: 2.2mm 2mm 1.2mm; margin: 0; overflow: hidden;
+            background: #fff; page-break-after: always; break-after: page;
+          }
+          .store, .product-name, .price {
+            width: 100%; line-height: 1; white-space: nowrap; overflow: hidden;
+            text-overflow: ellipsis; color: #000;
+          }
+          .store { font-size: 13px; font-weight: 800; margin: 0 0 0.6mm; }
+          .product-name { font-size: 10px; font-weight: 700; margin: 0 0 0.8mm; }
+          .price { font-size: 12px; font-weight: 800; margin: 0 0 0.7mm; }
+          .barcode-container {
+            width: 45mm; height: 10mm; display: flex; align-items: center;
+            justify-content: center; overflow: hidden; margin: 0; padding: 0;
+          }
+          .barcode-container svg { width: 44mm; height: 9mm; display: block; }
+          .barcode-number {
+            font-size: 11px; font-weight: 600; line-height: 1; margin-top: 0.5mm;
+            color: #000; letter-spacing: 0.5px;
+          }
+          @media print {
+            html, body { width: 50mm; margin: 0; padding: 0; }
+            .label {
+              width: 50mm; height: 30mm; margin: 0; border: none;
+              page-break-after: always; break-after: page;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        ${labelMarkup}
+        <script>
+          window.onload = function () {
+            try {
+              ${barcodeScripts}
+              setTimeout(function () { window.focus(); window.print(); }, 500);
+            } catch (error) {
+              console.error('Barcode rendering failed:', error);
+              alert('Unable to generate barcode labels.');
+            }
+          };
+        </script>
+      </body>
+    </html>
+  `);
+  win.document.close();
+  return true;
+}
 
 function generateCode128(): string {
   const prefix = 'SB';
@@ -49,22 +162,35 @@ export default function GenerateBarcodePage() {
   const [barcodeValue, setBarcodeValue] = useState('');
   const [barcodeFormat, setBarcodeFormat] = useState('CODE128');
   const [quantity, setQuantity] = useState(1);
-  const [storeName, setStoreName] = useState('StyleBazaar');
+  const [storeName, setStoreName] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
   const [bulkMode, setBulkMode] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
+  const storeNameEdited = useRef(false);
 
   useEffect(() => {
     async function load() {
-      const { data } = await supabase
-        .from('products')
-        .select('*, brands(name), categories(name)')
-        .eq('status', 'active')
-        .order('name');
-      setProducts(data || []);
-      setFiltered(data || []);
+      const [productsResult, settingsResult] = await Promise.all([
+        supabase
+          .from('products')
+          .select('*, brands(name), categories(name)')
+          .eq('status', 'active')
+          .order('name'),
+        supabase.from('settings').select('store_name').maybeSingle(),
+      ]);
+      if (productsResult.error) {
+        toast.error(`Failed to load products: ${productsResult.error.message}`);
+      } else {
+        setProducts(productsResult.data || []);
+        setFiltered(productsResult.data || []);
+      }
+      if (settingsResult.error) {
+        toast.error(`Failed to load store name: ${settingsResult.error.message}`);
+      } else if (settingsResult.data?.store_name && !storeNameEdited.current) {
+        setStoreName(settingsResult.data.store_name);
+      }
       setLoading(false);
     }
     load();
@@ -151,7 +277,7 @@ export default function GenerateBarcodePage() {
       barcode: barcodeValue,
       barcode_format: barcodeFormat,
       quantity_printed: quantity,
-      branch: 'main',
+      branch: storeName.trim() || 'main',
       generated_by: 'admin',
     });
     setProducts((prev) => prev.map((p) => p.id === selected.id ? { ...p, barcode: barcodeValue, barcode_format: barcodeFormat } : p));
@@ -187,45 +313,17 @@ export default function GenerateBarcodePage() {
 
   const printBarcode = () => {
     if (!barcodeValue || !selected) return;
-    const win = window.open('', '_blank', 'width=400,height=500');
-    if (!win) { toast.error('Please allow popups'); return; }
-    win.document.write(`
-      <html><head><title>Barcode Label - ${selected.name}</title>
-      <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
-      <style>
-        body { font-family: sans-serif; text-align: center; padding: 20px; }
-        .label { display: inline-block; border: 1px solid #ddd; border-radius: 6px; padding: 12px; margin: 1px; }
-        .store { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
-        .name { font-size: 12px; font-weight: 600; margin-bottom: 2px; max-width: 200px; }
-        .price { font-size: 14px; font-weight: 700; margin-top: 4px; }
-        .sku { font-size: 10px; color: #666; }
-      </style></head><body>
-      ${Array.from({ length: quantity }).map(() => `
-        <div class="label">
-          <div class="store">${storeName}</div>
-          <div class="name">${selected.name}</div>
-          <div class="price"> PRICE: ৳${selected.discount_price || selected.selling_price}</div>
-          <svg id="bc"></svg>        
-          
-        </div>
-      `).join('')}
-      <script>
-      window.onload = function() {
-        document.querySelectorAll('#bc').forEach(function(el) {
-          JsBarcode(el, "${barcodeValue}", { format: "${barcodeFormat}", width: 2, height: 30, fontSize: 14, margin: 2 });
-        });
-        window.print();
-      };
-      </script></body></html>
-    `);
-    win.document.close();
+    const labels = Array.from({ length: quantity }, () => ({
+      name: selected.name,
+      barcode: barcodeValue,
+      format: barcodeFormat,
+      price: selected.discount_price || selected.selling_price || 0,
+    }));
+    if (!printBarcodeLabels(labels, storeName)) toast.error('Please allow popups to print');
   };
-  
-{/* <div class="sku">SKU: ${selected.sku || 'N/A'}</div> */}
 
-
-    const printBulk = () => {
-  const toPrint = products.filter(
+  const printBulk = () => {
+    const toPrint = products.filter(
     (p) => selectedProducts.has(p.id) && p.barcode
   );
 
@@ -234,302 +332,17 @@ export default function GenerateBarcodePage() {
     return;
   }
 
-  const win = window.open('', '_blank', 'width=600,height=800');
-
-  if (!win) {
-    toast.error('Please allow popups to print');
-    return;
-  }
-
-  const escapeHtml = (value: string) =>
-    value
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
-
-  const labels = toPrint
-    .map((product, index) => {
-      const productName = escapeHtml(product.name || 'Product');
-      const barcodeValue = escapeHtml(String(product.barcode || ''));
-
-      const price =
-        product.discount_price || product.selling_price || 0;
-
-      return `
-        <div class="label">
-
-          <div class="store">
-            ${escapeHtml(storeName || 'VIBE')}
-          </div>
-
-          <div class="product-name">
-            ${productName}
-          </div>
-
-          <div class="price">
-            PRICE: ৳ ${Number(price).toLocaleString('en-US')}
-          </div>
-
-          <div class="barcode-container">
-            <svg id="barcode-${index}"></svg>
-          </div>
-
-          <div class="barcode-number">
-            ${barcodeValue}
-          </div>
-
-        </div>
-      `;
-    })
-    .join('');
-
-  const barcodeScripts = toPrint
-    .map((product, index) => {
-      const barcodeValue = String(product.barcode || '')
-        .replace(/\\/g, '\\\\')
-        .replace(/"/g, '\\"');
-
-      const format = product.barcode_format || 'CODE128';
-
-      return `
-        JsBarcode("#barcode-${index}", "${barcodeValue}", {
-          format: "${format}",
-          width: 1.5,
-          height: 35,
-          displayValue: false,
-          margin: 0,
-          lineColor: "#000000",
-          background: "#ffffff"
-        });
-      `;
-    })
-    .join('');
-
-  win.document.open();
-
-  win.document.write(`
-    <!DOCTYPE html>
-
-    <html>
-      <head>
-
-        <meta charset="UTF-8">
-
-        <title>Bulk Barcode Print</title>
-
-        <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
-
-        <style>
-
-          @page {
-            size: 50mm 30mm;
-            margin: 0;
-          }
-
-          * {
-            box-sizing: border-box;
-          }
-
-          html,
-          body {
-            width: 50mm;
-            margin: 0;
-            padding: 0;
-            background: #ffffff;
-          }
-
-          body {
-            font-family: Arial, Helvetica, sans-serif;
-          }
-
-          /* =========================
-             SAME SINGLE LABEL DESIGN
-          ========================= */
-
-          .label {
-            width: 50mm;
-            height: 30mm;
-
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: flex-start;
-
-            text-align: center;
-
-            padding: 2.2mm 2mm 1.2mm;
-
-            margin: 0;
-
-            overflow: hidden;
-
-            background: #ffffff;
-
-            page-break-after: always;
-            break-after: page;
-          }
-
-          /* VIBE */
-
-          .store {
-            width: 100%;
-
-            font-size: 11px;
-            font-weight: 800;
-
-            line-height: 1;
-
-            margin: 0 0 0.8mm;
-
-            color: #000000;
-
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-          }
-
-          /* PANJABI / PRODUCT NAME */
-
-          .product-name {
-            width: 100%;
-
-            font-size: 10px;
-            font-weight: 700;
-
-            line-height: 1;
-
-            margin: 0 0 0.8mm;
-
-            color: #000000;
-
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-          }
-
-          /* PRICE */
-
-          .price {
-            width: 100%;
-
-            font-size: 10px;
-            font-weight: 800;
-
-            line-height: 1;
-
-            margin: 0 0 1mm;
-
-            color: #000000;
-          }
-
-          /* BARCODE */
-
-          .barcode-container {
-            width: 45mm;
-            height: 10mm;
-
-            display: flex;
-            align-items: center;
-            justify-content: center;
-
-            overflow: hidden;
-
-            margin: 0;
-            padding: 0;
-          }
-
-          .barcode-container svg {
-            width: 44mm;
-            height: 9mm;
-
-            display: block;
-          }
-
-          /* 1093 / BARCODE NUMBER */
-
-          .barcode-number {
-            font-size: 9px;
-            font-weight: 500;
-
-            line-height: 1;
-
-            margin-top: 0.5mm;
-
-            color: #000000;
-
-            letter-spacing: 0.5px;
-          }
-
-          @media print {
-
-            html,
-            body {
-              width: 50mm;
-              margin: 0;
-              padding: 0;
-            }
-
-            .label {
-              width: 50mm;
-              height: 30mm;
-
-              margin: 0;
-
-              border: none;
-
-              page-break-after: always;
-              break-after: page;
-            }
-
-          }
-
-        </style>
-
-      </head>
-
-      <body>
-
-        ${labels}
-
-        <script>
-
-          window.onload = function () {
-
-            try {
-
-              ${barcodeScripts}
-
-              setTimeout(function () {
-                window.focus();
-                window.print();
-              }, 500);
-
-            } catch (error) {
-
-              console.error(
-                'Bulk barcode rendering failed:',
-                error
-              );
-
-              alert(
-                'Unable to generate barcode labels.'
-              );
-
-            }
-
-          };
-
-        </script>
-
-      </body>
-    </html>
-  `);
-
-  win.document.close();
+    const labels: BarcodePrintLabel[] = toPrint.map((product) => ({
+      name: product.name,
+      barcode: String(product.barcode),
+      format: product.barcode_format || 'CODE128',
+      price: product.discount_price || product.selling_price || 0,
+    }));
+    if (!printBarcodeLabels(labels, storeName)) {
+      toast.error('Please allow popups to print');
+    }
   };
-          // <div class="sku">SKU: ${p.sku || 'N/A'}</div>
+
   const toggleProduct = (id: string) => {
     const next = new Set(selectedProducts);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -590,7 +403,7 @@ export default function GenerateBarcodePage() {
                         </div>
                       )}
                       <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center shrink-0 overflow-hidden">
-                        {product.image_url ? <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" /> : <Package className="w-5 h-5 text-muted-foreground" />}
+                        {product.image_url ? <NextImage src={product.image_url} alt={product.name} width={40} height={40} className="w-full h-full object-cover" /> : <Package className="w-5 h-5 text-muted-foreground" />}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium line-clamp-1">{product.name}</p>
@@ -618,7 +431,7 @@ export default function GenerateBarcodePage() {
                 {/* Product info */}
                 <div className="flex items-start gap-4 pb-4 border-b">
                   <div className="w-16 h-16 rounded-lg bg-muted flex items-center justify-center overflow-hidden shrink-0">
-                    {selected.image_url ? <img src={selected.image_url} alt={selected.name} className="w-full h-full object-cover" /> : <Package className="w-8 h-8 text-muted-foreground" />}
+                    {selected.image_url ? <NextImage src={selected.image_url} alt={selected.name} width={64} height={64} className="w-full h-full object-cover" /> : <Package className="w-8 h-8 text-muted-foreground" />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <h3 className="font-semibold">{selected.name}</h3>
@@ -661,7 +474,14 @@ export default function GenerateBarcodePage() {
                 {/* Store name for label */}
                 <div>
                   <Label>Store / Branch Name (on label)</Label>
-                  <Input value={storeName} onChange={(e) => setStoreName(e.target.value)} placeholder="Store name" />
+                  <Input
+                    value={storeName}
+                    onChange={(e) => {
+                      storeNameEdited.current = true;
+                      setStoreName(e.target.value);
+                    }}
+                    placeholder="Store name"
+                  />
                 </div>
 
                 {/* Preview */}
@@ -694,7 +514,14 @@ export default function GenerateBarcodePage() {
             <div className="space-y-4">
               <div>
                 <Label>Store / Branch Name (on labels)</Label>
-                <Input value={storeName} onChange={(e) => setStoreName(e.target.value)} placeholder="Store name" />
+                <Input
+                  value={storeName}
+                  onChange={(e) => {
+                    storeNameEdited.current = true;
+                    setStoreName(e.target.value);
+                  }}
+                  placeholder="Store name"
+                />
               </div>
               <div className="p-4 bg-muted/50 rounded-lg">
                 <p className="text-sm font-medium mb-2">Selected: {selectedProducts.size} products</p>

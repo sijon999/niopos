@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import NextImage from 'next/image';
 import { motion } from 'framer-motion';
 import { Plus, Edit2, Trash2, Store, Search, Copy, Printer, Image as ImageIcon, X } from 'lucide-react';
 import { Card } from '@/components/ui/card';
@@ -211,7 +212,7 @@ export default function BrandsPage() {
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-3">
                       {brand.logo_url ? (
-                        <img src={brand.logo_url} alt={brand.name} className="w-8 h-8 rounded-lg object-cover" />
+                        <NextImage src={brand.logo_url} alt={brand.name} width={32} height={32} className="w-8 h-8 rounded-lg object-cover" />
                       ) : (
                         <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center">
                           <Store className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
@@ -258,7 +259,7 @@ export default function BrandsPage() {
               <Label>{t('brands.logo')}</Label>
               {logoUrl ? (
                 <div className="relative inline-block">
-                  <img src={logoUrl} alt={t('brands.logo')} className="w-20 h-20 rounded-lg object-cover border" />
+                  <NextImage src={logoUrl} alt={t('brands.logo')} width={80} height={80} className="w-20 h-20 rounded-lg object-cover border" />
                   <button type="button" onClick={() => setLogoUrl(null)} className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-rose-500 text-white flex items-center justify-center hover:bg-rose-600 shadow-md">
                     <X className="w-3.5 h-3.5" />
                   </button>

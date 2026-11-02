@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import NextImage from 'next/image';
 import { motion } from 'framer-motion';
 import {
   ShoppingCart,
@@ -209,7 +210,7 @@ export default function LandingPage() {
                 </span>
               </h1>
               <p className="text-lg text-muted-foreground max-w-md">
-                Shop shirts, pants, panjabi, jeans, and more. Premium quality clothing at prices you'll love. Free delivery on orders over ৳2000.
+                Shop shirts, pants, panjabi, jeans, and more. Premium quality clothing at prices you&apos;ll love. Free delivery on orders over ৳2000.
               </p>
               <div className="flex flex-col sm:flex-row gap-3">
                 <Button asChild size="lg" className="w-full sm:w-auto bg-gradient-to-r from-slate-800 to-black hover:from-slate-700 hover:to-slate-900 shadow-lg shadow-slate-800/30 group">
@@ -361,7 +362,7 @@ export default function LandingPage() {
                     <Card className="group overflow-hidden hover:shadow-xl transition-all duration-300 border-rose-200/50 dark:border-rose-900/30">
                       <div className="aspect-square bg-gradient-to-br from-slate-50 to-amber-50 dark:from-slate-900/30 dark:to-amber-900/20 flex items-center justify-center relative overflow-hidden">
                         {product.image_url ? (
-                          <img src={product.image_url} alt={product.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                          <NextImage src={product.image_url} alt={product.name} fill sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw" className="object-cover group-hover:scale-110 transition-transform duration-500" />
                         ) : (
                           <span className="text-5xl group-hover:scale-110 transition-transform">
                             {getProductEmoji(product.name, product.categories?.name)}
@@ -412,7 +413,7 @@ export default function LandingPage() {
                 <Card className="group overflow-hidden hover:shadow-xl transition-all duration-300 border-border/60 flex flex-col h-full">
                   <div className="aspect-square bg-gradient-to-br from-slate-50 to-amber-50 dark:from-slate-900/30 dark:to-amber-900/20 flex items-center justify-center relative overflow-hidden">
                     {product.image_url ? (
-                      <img src={product.image_url} alt={product.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                      <NextImage src={product.image_url} alt={product.name} fill sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw" className="object-cover group-hover:scale-110 transition-transform duration-500" />
                     ) : (
                       <span className="text-5xl group-hover:scale-110 transition-transform">
                         {getProductEmoji(product.name, product.categories?.name)}
@@ -616,7 +617,7 @@ export default function LandingPage() {
               ) : cart.map((item) => (
                 <div key={item.product_id} className="flex items-center gap-3 p-2 rounded-lg border border-border/40">
                   {item.image_url ? (
-                    <img src={item.image_url} alt={item.name} className="w-10 h-10 rounded-lg object-cover shrink-0" />
+                    <NextImage src={item.image_url} alt={item.name} width={40} height={40} className="w-10 h-10 rounded-lg object-cover shrink-0" />
                   ) : (
                     <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center text-xl shrink-0">
                       {getProductEmoji(item.name)}

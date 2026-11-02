@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import NextImage from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Search,
@@ -51,7 +53,8 @@ import {
 } from '@/components/ui/dialog';
 import { usePOSStore, calcLineDiscount, calcLineTotal } from '@/store/pos-store';
 import { supabase } from '@/lib/supabase';
-import type { Product, Category, Customer } from '@/types';
+import type { Product, Category, Customer, Settings } from '@/types';
+import { ThermalReceipt } from '@/components/thermal-receipt';
 import { fetchEligibleOffers, calculateOfferDiscount, formatOfferLabel, checkMinimumPurchase, type EligibleOffer } from '@/lib/discount';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/use-translation';
@@ -69,6 +72,7 @@ export default function POSPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [storeSettings, setStoreSettings] = useState<Pick<Settings, 'store_name' | 'store_address' | 'store_phone' | 'store_email' | 'currency_symbol' | 'tax_rate' | 'receipt_footer' | 'domain' | 'trade_license_no' | 'tax_no'> | null>(null);
   const [loading, setLoading] = useState(true);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [receiptOpen, setReceiptOpen] = useState(false);
@@ -86,7 +90,16 @@ export default function POSPage() {
   const [showKeypad, setShowKeypad] = useState(false);
   const [keypadValue, setKeypadValue] = useState('');
   const [shortcutHint, setShortcutHint] = useState(false);
+  const [printPortalReady, setPrintPortalReady] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const keyboardActionsRef = useRef({
+    handleCheckout: () => {},
+    handleHoldOrder: () => {},
+  });
+
+  useEffect(() => {
+    setPrintPortalReady(true);
+  }, []);
 
   const {
     cart,
@@ -125,18 +138,26 @@ export default function POSPage() {
 
   useEffect(() => {
     async function loadData() {
-      const [prodRes, catRes, custRes, brandRes, heldRes] = await Promise.all([
+      const [prodRes, catRes, custRes, brandRes, heldRes, settingsRes] = await Promise.all([
         supabase.from('products').select('*, brands(name), categories(name)').eq('status', 'active').order('name'),
         supabase.from('categories').select('*').eq('status', 'active').order('name'),
         supabase.from('customers').select('*').eq('status', 'active').order('name'),
         supabase.from('brands').select('*').eq('status', 'active').order('name'),
         supabase.from('held_orders').select('*').eq('status', 'held').order('hold_time', { ascending: false }),
+        supabase.from('settings').select('store_name, store_address, store_phone, store_email, currency_symbol, tax_rate, receipt_footer, domain, trade_license_no, tax_no').maybeSingle(),
       ]);
       setProducts(prodRes.data || []);
       setCategories(catRes.data || []);
       setCustomers(custRes.data || []);
       setBrands(brandRes.data || []);
       setHeldOrders(heldRes.data || []);
+      if (settingsRes.error) {
+        toast.error(`${t('settings.loadFailed')}: ${settingsRes.error.message}`);
+      } else if (settingsRes.data) {
+        setStoreSettings(settingsRes.data);
+      } else {
+        toast.error(t('settings.notConfigured'));
+      }
       const selectedCustomerId = usePOSStore.getState().selectedCustomerId;
       if (selectedCustomerId && custRes.data) {
         setCustomer(custRes.data.find((customer) => customer.id === selectedCustomerId) || null);
@@ -144,7 +165,7 @@ export default function POSPage() {
       setLoading(false);
     }
     loadData();
-  }, []);
+  }, [setCustomer, t]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -162,17 +183,17 @@ export default function POSPage() {
         searchRef.current?.focus();
       } else if (e.key === 'F4') {
         e.preventDefault();
-        handleHoldOrder();
+        keyboardActionsRef.current.handleHoldOrder();
       } else if (e.key === 'F6') {
         e.preventDefault();
-        const discInput = document.getElementById('discount-input') as HTMLInputElement;
-        discInput?.focus();
+        const discountInput = document.getElementById('discount-input') as HTMLInputElement;
+        discountInput?.focus();
       } else if (e.key === 'F8') {
         e.preventDefault();
         setCheckoutOpen(true);
       } else if (e.key === 'F9') {
         e.preventDefault();
-        if (checkoutOpen) handleCheckout();
+        if (checkoutOpen) keyboardActionsRef.current.handleCheckout();
       } else if (e.key === 'Escape') {
         if (checkoutOpen) setCheckoutOpen(false);
         else if (heldOrdersOpen) setHeldOrdersOpen(false);
@@ -201,16 +222,14 @@ export default function POSPage() {
   }, [selectedCustomer, cart, getSubtotal, selectedOffer, selectedOfferId, setSelectedOfferId]);
 
   const itemDiscounts = getItemDiscounts();
-  const offerDiscount = selectedOffer ? calculateOfferDiscount(selectedOffer, Math.max(0, getSubtotal() - itemDiscounts - discount)) : 0;
-  const offerTax = useMemo(() => {
-    const afterDiscount = getSubtotal() - itemDiscounts - discount - offerDiscount;
-    return Math.round(Math.max(0, afterDiscount) * 0.00 * 100) / 100;
-  }, [getSubtotal, itemDiscounts, discount, offerDiscount]);
-  const grandTotal = useMemo(() => {
-    const afterDiscount = getSubtotal() - itemDiscounts - discount - offerDiscount;
-    const tax = Math.round(Math.max(0, afterDiscount) * 0.00 * 100) / 100;
-    return Math.round((afterDiscount + tax) * 100) / 100;
-  }, [getSubtotal, itemDiscounts, discount, offerDiscount]);
+  const currencySymbol = storeSettings?.currency_symbol ?? '';
+  const taxRate = storeSettings?.tax_rate ?? 0;
+  const maxExtraDiscount = Math.max(0, getSubtotal() - itemDiscounts);
+  const appliedExtraDiscount = Math.min(discount, maxExtraDiscount);
+  const offerDiscount = selectedOffer ? calculateOfferDiscount(selectedOffer, Math.max(0, maxExtraDiscount - appliedExtraDiscount)) : 0;
+  const afterDiscount = maxExtraDiscount - appliedExtraDiscount - offerDiscount;
+  const offerTax = Math.round(Math.max(0, afterDiscount) * (taxRate / 100) * 100) / 100;
+  const grandTotal = Math.round((afterDiscount + offerTax) * 100) / 100;
 
   const customerSearchDigits = customerSearch.replace(/\D/g, '');
   const filteredCustomers = customers.filter((customer) => {
@@ -275,7 +294,7 @@ export default function POSPage() {
       }
     }
     if (od.customer) setCustomer(od.customer);
-    if (od.discount) setDiscount(od.discount);
+    if (typeof od.discount === 'number') setDiscount(od.discount);
     if (od.paymentMethod) setPaymentMethod(od.paymentMethod);
     if (typeof od.paidAmount === 'number') setPaidAmount(od.paidAmount);
     if (typeof od.offerId === 'string') setSelectedOfferId(od.offerId);
@@ -309,6 +328,10 @@ export default function POSPage() {
       toast.error(t('pos.cartEmpty'));
       return;
     }
+    if (!storeSettings) {
+      toast.error(t('settings.notConfigured'));
+      return;
+    }
 
     const { data: saleData, error } = await supabase.rpc('complete_pos_sale', {
       p_cart: cart.map((item) => ({
@@ -318,7 +341,7 @@ export default function POSPage() {
         discount_value: item.discount_value || 0,
       })),
       p_customer_id: selectedCustomer?.id || null,
-      p_discount: discount,
+      p_discount: appliedExtraDiscount,
       p_payment_method: paymentMethod,
       p_paid_amount: paidAmount,
       p_offer_id: selectedOffer?.id || null,
@@ -337,7 +360,33 @@ export default function POSPage() {
       .order('name');
     setProducts(refreshed || []);
 
-    setLastInvoice({ ...saleData, items: cart, customer: selectedCustomer, offer: selectedOffer ? { name: selectedOffer.name, discount: offerDiscount } : null });
+    setLastInvoice({
+      ...saleData,
+      items: saleData.items.map((item: {
+        id: string;
+        name: string;
+        sku: string | null;
+        quantity: number;
+        price: number;
+        discount_amount: number;
+        total: number;
+      }) => ({
+        id: item.id,
+        name: item.name,
+        sku: item.sku,
+        quantity: Number(item.quantity),
+        price: Number(item.price),
+        discount_amount: Number(item.discount_amount),
+        total: Number(item.total),
+      })),
+      customer: saleData.customer_name_snapshot
+        ? {
+            name: saleData.customer_name_snapshot,
+            phone: saleData.customer_phone_snapshot,
+            address: saleData.customer_address_snapshot,
+          }
+        : null,
+    });
     setCheckoutOpen(false);
     setReceiptOpen(true);
     setEligibleOffers([]);
@@ -345,6 +394,8 @@ export default function POSPage() {
     setPaidAmount(0);
     toast.success(t('pos.saleCompleted'));
   };
+
+  keyboardActionsRef.current = { handleCheckout, handleHoldOrder };
 
   const keypadButtons = ['7', '8', '9', '4', '5', '6', '1', '2', '3', '0', '00', '⌫'];
 
@@ -436,7 +487,7 @@ export default function POSPage() {
                 <motion.div key={product.id} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.2, delay: i * 0.02 }}>
                   <Card className="group h-full cursor-pointer overflow-hidden rounded-xl border-border/70 transition-colors hover:border-primary/50 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => { if (product.stock <= 0) { toast.error(t('pos.productOutOfStock', { name: product.name })); return; } addToCart(product); }}>
                     <div className="relative flex aspect-[3/2] items-center justify-center overflow-hidden bg-gradient-to-br from-amber-50 to-orange-100 dark:from-amber-950/30 dark:to-orange-900/20">
-                      {product.image_url ? <img src={product.image_url} alt={product.name} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" /> : <span className="text-4xl">{getProductEmoji(product.name)}</span>}
+                      {product.image_url ? <NextImage src={product.image_url} alt={product.name} fill sizes="(max-width: 1280px) 50vw, 33vw" className="object-cover transition-transform duration-300 group-hover:scale-105" /> : <span className="text-4xl">{getProductEmoji(product.name)}</span>}
                       {product.stock <= 0 && <Badge className="absolute right-2 top-2 bg-rose-500">{t('inventory.outOfStock')}</Badge>}
                       {product.stock > 0 && product.stock < 10 && <Badge className="absolute right-2 top-2 bg-amber-500">{t('inventory.lowStock')}</Badge>}
                       {product.discount_price && <Badge className="absolute left-2 top-2 bg-rose-500">{t('pos.sale')}</Badge>}
@@ -445,7 +496,7 @@ export default function POSPage() {
                       <p className="truncate text-[10px] leading-3 text-muted-foreground sm:text-xs sm:leading-4">{product.brands?.name || ' '}</p>
                       <h3 className="mt-0.5 min-h-8 line-clamp-2 text-xs font-semibold leading-4 sm:text-sm">{product.name}</h3>
                       <div className="mt-auto flex min-w-0 items-center justify-between gap-1 pt-1.5">
-                        <span className="truncate text-xs font-bold text-amber-600 dark:text-amber-400 sm:text-sm">৳{product.discount_price || product.selling_price}</span>
+                        <span className="truncate text-xs font-bold text-amber-600 dark:text-amber-400 sm:text-sm">{currencySymbol}{product.discount_price || product.selling_price}</span>
                         <span className="shrink-0 text-[10px] text-muted-foreground sm:text-xs">{product.stock} {product.unit}</span>
                       </div>
                     </div>
@@ -561,7 +612,7 @@ export default function POSPage() {
               {eligibleOffers.map((offer) => (
                 <option key={offer.id} value={offer.id}>
                   {formatOfferLabel(offer)}
-                  {Number(offer.minimum_purchase) > 0 ? ` (Min: ৳${Number(offer.minimum_purchase).toFixed(0)})` : ''}
+                  {Number(offer.minimum_purchase) > 0 ? ` (Min: ${currencySymbol}${Number(offer.minimum_purchase).toFixed(0)})` : ''}
                 </option>
               ))}
             </select>
@@ -600,14 +651,14 @@ export default function POSPage() {
                   <motion.div key={item.product_id} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.2 }} className="space-y-1 rounded-xl border border-border/70 p-1.5">
                     <div className="flex min-w-0 items-center gap-2">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-amber-100 text-lg dark:bg-amber-900/30">
-                        {item.image_url ? <img src={item.image_url} alt={item.name} className="w-full h-full object-cover" /> : <span>{getProductEmoji(item.name)}</span>}
+                        {item.image_url ? <NextImage src={item.image_url} alt={item.name} width={32} height={32} className="w-full h-full object-cover" /> : <span>{getProductEmoji(item.name)}</span>}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="truncate text-sm font-medium leading-4">{item.name}</p>
-                        <p className="mt-0.5 truncate text-xs leading-4 text-muted-foreground">৳{item.price.toFixed(2)} {t('pos.each')}</p>
+                        <p className="mt-0.5 truncate text-xs leading-4 text-muted-foreground">{currencySymbol}{item.price.toFixed(2)} {t('pos.each')}</p>
                       </div>
                       <div className="min-w-0 shrink-0 text-right">
-                        <p className="whitespace-nowrap text-xs font-bold sm:text-sm">৳{lineTotal.toFixed(2)}</p>
+                        <p className="whitespace-nowrap text-xs font-bold sm:text-sm">{currencySymbol}{lineTotal.toFixed(2)}</p>
                         <button onClick={() => removeFromCart(item.product_id)} className="text-[10px] text-rose-600 hover:text-rose-700 sm:text-xs">{t('common.remove')}</button>
                       </div>
                     </div>
@@ -626,7 +677,7 @@ export default function POSPage() {
                         <button
                           onClick={() => updateItemDiscount(item.product_id, 'fixed', item.discount_value || 0)}
                           className={`h-7 w-7 rounded-md border text-[10px] font-medium sm:text-xs ${item.discount_type === 'fixed' ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted'}`}
-                        >৳</button>
+                        >{currencySymbol}</button>
                         <Input
                           type="number"
                           value={item.discount_value || ''}
@@ -641,7 +692,7 @@ export default function POSPage() {
                         />
                         {lineDiscount > 0 && (
                           <span className="whitespace-nowrap text-xs font-medium text-amber-600 dark:text-amber-400">
-                            -৳{lineDiscount.toFixed(2)}
+                            -{currencySymbol}{lineDiscount.toFixed(2)}
                           </span>
                         )}
                       </div>
@@ -658,23 +709,35 @@ export default function POSPage() {
         <div className="shrink-0 space-y-1 border-t border-border/70 bg-card p-2 sm:space-y-1 sm:p-2">
           <div className="flex items-center justify-between gap-3 text-sm leading-5">
             <span className="text-muted-foreground">{t('pos.subtotal')}</span>
-            <span className="whitespace-nowrap font-medium tabular-nums">৳{getSubtotal().toFixed(2)}</span>
+            <span className="whitespace-nowrap font-medium tabular-nums">{currencySymbol}{getSubtotal().toFixed(2)}</span>
+          </div>
+          <div className="flex items-center justify-between gap-3 text-sm leading-5">
+            <label htmlFor="discount-input" className="text-muted-foreground">{t('pos.extraDiscount')}</label>
+            <div className="flex w-36 items-center gap-1">
+              <span className="text-muted-foreground">{currencySymbol}</span>
+              <Input
+                id="discount-input"
+                type="number"
+                min="0"
+                max={maxExtraDiscount}
+                step="0.01"
+                value={discount || ''}
+                onChange={(e) => setDiscount(Math.min(Number(e.target.value) || 0, maxExtraDiscount))}
+                placeholder="0.00"
+                className="h-8 text-right"
+              />
+            </div>
           </div>
           {itemDiscounts > 0 && (
             <div className="flex items-center justify-between gap-3 text-sm leading-5">
               <span className="text-amber-600 dark:text-amber-400">{t('pos.productDiscounts')}</span>
-              <span className="whitespace-nowrap font-medium tabular-nums text-amber-600 dark:text-amber-400">-৳{itemDiscounts.toFixed(2)}</span>
+              <span className="whitespace-nowrap font-medium tabular-nums text-amber-600 dark:text-amber-400">-{currencySymbol}{itemDiscounts.toFixed(2)}</span>
             </div>
           )}
-          <div className="flex min-w-0 items-center gap-2">
-            <Percent className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <Input id="discount-input" type="number" placeholder={t('pos.extraDiscountShortcut')} value={discount || '0%'} onChange={(e) => setDiscount(Number(e.target.value) || 0)} className="h-8 min-w-0 flex-1 px-2 text-xs sm:h-9 sm:px-3 sm:text-sm" />
-            <span className="w-[58px] shrink-0 text-right text-xs tabular-nums text-muted-foreground sm:w-[76px] sm:text-sm">-৳{discount.toFixed(2)}</span>
-          </div>
           {selectedOffer && offerDiscount > 0 && (
             <div className="flex items-center justify-between gap-3 text-sm leading-5">
               <span className="flex min-w-0 items-center gap-1 text-amber-600 dark:text-amber-400"><Gift className="h-3 w-3 shrink-0" /><span className="truncate">{selectedOffer.name}</span></span>
-              <span className="whitespace-nowrap font-medium tabular-nums text-amber-600 dark:text-amber-400">-৳{offerDiscount.toFixed(2)}</span>
+              <span className="whitespace-nowrap font-medium tabular-nums text-amber-600 dark:text-amber-400">-{currencySymbol}{offerDiscount.toFixed(2)}</span>
             </div>
           )}
           {selectedOffer && Number(selectedOffer.minimum_purchase) > 0 && getSubtotal() < Number(selectedOffer.minimum_purchase) && (
@@ -684,13 +747,13 @@ export default function POSPage() {
           )}
           
           <div className="flex items-center justify-between gap-3 text-sm leading-5">
-            <span className="text-muted-foreground">{t('pos.taxRate', { rate: '0' })}</span>
-            <span className="whitespace-nowrap font-medium tabular-nums">৳{offerTax.toFixed(2)}</span>
+            <span className="text-muted-foreground">{t('pos.taxRate', { rate: String(taxRate) })}</span>
+            <span className="whitespace-nowrap font-medium tabular-nums">{currencySymbol}{offerTax.toFixed(2)}</span>
           </div>
           <Separator />
           <div className="flex items-center justify-between gap-2">
             <span className="text-sm font-semibold sm:text-base">{t('common.total')}</span>
-            <span className="whitespace-nowrap text-xl font-bold tabular-nums text-amber-600 dark:text-amber-400 sm:text-xl">৳{grandTotal.toFixed(2)}</span>
+            <span className="whitespace-nowrap text-xl font-bold tabular-nums text-amber-600 dark:text-amber-400 sm:text-xl">{currencySymbol}{grandTotal.toFixed(2)}</span>
           </div>
 
           {/* Payment method selector */}
@@ -704,7 +767,7 @@ export default function POSPage() {
           </div> */}
 
           <Button className="h-10 w-full rounded-lg bg-gradient-to-r from-slate-800 to-black px-2 text-xs font-semibold shadow-sm hover:from-slate-700 hover:to-slate-900 sm:text-sm" size="lg" disabled={cart.length === 0} onClick={() => setCheckoutOpen(true)}>
-            <Receipt className="w-4 h-4 mr-2" /> {t('pos.checkout')} · ৳{grandTotal.toFixed(2)} (F8)
+            <Receipt className="w-4 h-4 mr-2" /> {t('pos.checkout')} · {currencySymbol}{grandTotal.toFixed(2)} (F8)
           </Button>
         </div>
       </Card>
@@ -728,24 +791,24 @@ export default function POSPage() {
 
             <div className="space-y-2 p-4 bg-muted/50 rounded-lg">
               <div className="flex justify-between text-sm"><span className="text-muted-foreground">{t('pos.items')}</span><span>{cart.length}</span></div>
-              <div className="flex justify-between text-sm"><span className="text-muted-foreground">{t('pos.subtotal')}</span><span>৳{getSubtotal().toFixed(2)}</span></div>
-              {itemDiscounts > 0 && (
-                <div className="flex justify-between text-sm"><span className="text-amber-600 dark:text-amber-400">{t('pos.productDiscounts')}</span><span className="text-amber-600 dark:text-amber-400">-৳{itemDiscounts.toFixed(2)}</span></div>
+              <div className="flex justify-between text-sm"><span className="text-muted-foreground">{t('pos.subtotal')}</span><span>{currencySymbol}{getSubtotal().toFixed(2)}</span></div>
+              {appliedExtraDiscount > 0 && (
+                <div className="flex justify-between text-sm"><span className="text-muted-foreground">{t('pos.extraDiscount')}</span><span>-{currencySymbol}{appliedExtraDiscount.toFixed(2)}</span></div>
               )}
-              {discount > 0 && (
-                <div className="flex justify-between text-sm"><span className="text-muted-foreground">{t('pos.extraDiscount')}</span><span>-৳{discount.toFixed(2)}</span></div>
+              {itemDiscounts > 0 && (
+                <div className="flex justify-between text-sm"><span className="text-amber-600 dark:text-amber-400">{t('pos.productDiscounts')}</span><span className="text-amber-600 dark:text-amber-400">-{currencySymbol}{itemDiscounts.toFixed(2)}</span></div>
               )}
               {selectedOffer && offerDiscount > 0 && (
-                <div className="flex justify-between text-sm"><span className="text-amber-600 dark:text-amber-400 flex items-center gap-1"><Gift className="w-3 h-3" /> {selectedOffer.name}</span><span className="text-amber-600 dark:text-amber-400">-৳{offerDiscount.toFixed(2)}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-amber-600 dark:text-amber-400 flex items-center gap-1"><Gift className="w-3 h-3" /> {selectedOffer.name}</span><span className="text-amber-600 dark:text-amber-400">-{currencySymbol}{offerDiscount.toFixed(2)}</span></div>
               )}
               {selectedOffer && Number(selectedOffer.minimum_purchase) > 0 && getSubtotal() < Number(selectedOffer.minimum_purchase) && (
                 <div className="text-[10px] text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-900/20 rounded p-2">
                   {t('pos.offerMinimumNotMet', { amount: Number(selectedOffer.minimum_purchase).toFixed(0) })}
                 </div>
               )}
-              <div className="flex justify-between text-sm"><span className="text-muted-foreground">{t('pos.taxRate', { rate: '5' })}</span><span>৳{offerTax.toFixed(2)}</span></div>
+              <div className="flex justify-between text-sm"><span className="text-muted-foreground">{t('pos.taxRate', { rate: String(taxRate) })}</span><span>{currencySymbol}{offerTax.toFixed(2)}</span></div>
               <Separator />
-              <div className="flex justify-between text-lg font-bold"><span>{t('common.total')}</span><span className="text-amber-600 dark:text-amber-400">৳{grandTotal.toFixed(2)}</span></div>
+              <div className="flex justify-between text-lg font-bold"><span>{t('common.total')}</span><span className="text-amber-600 dark:text-amber-400">{currencySymbol}{grandTotal.toFixed(2)}</span></div>
             </div>
 
             {/* Paid amount with numeric keypad */}
@@ -759,7 +822,7 @@ export default function POSPage() {
               {/* Quick amount buttons */}
               <div className="flex gap-2">
                 {quickAmounts.map((amt) => (
-                  <Button key={amt} variant="outline" size="sm" className="flex-1" onClick={() => setPaidAmount(amt)}>৳{amt}</Button>
+                  <Button key={amt} variant="outline" size="sm" className="flex-1" onClick={() => setPaidAmount(amt)}>{currencySymbol}{amt}</Button>
                 ))}
               </div>
               {/* Numeric keypad */}
@@ -773,10 +836,10 @@ export default function POSPage() {
                 </div>
               )}
               {paymentMethod === 'due' && (
-                <p className="text-sm text-amber-600">{t('pos.dueAmount')}: ৳{Math.max(0, grandTotal - paidAmount).toFixed(2)}</p>
+                <p className="text-sm text-amber-600">{t('pos.dueAmount')}: {currencySymbol}{Math.max(0, grandTotal - paidAmount).toFixed(2)}</p>
               )}
               {paymentMethod === 'cash' && paidAmount > 0 && (
-                <p className="text-sm text-emerald-600">{t('pos.change')}: ৳{Math.max(0, paidAmount - grandTotal).toFixed(2)}</p>
+                <p className="text-sm text-emerald-600">{t('pos.change')}: {currencySymbol}{Math.max(0, paidAmount - grandTotal).toFixed(2)}</p>
               )}
             </div>
 
@@ -789,12 +852,12 @@ export default function POSPage() {
                   <div key={item.product_id} className="py-1">
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">{item.quantity}x {item.name}</span>
-                      <span>৳{lt.toFixed(2)}</span>
+                      <span>{currencySymbol}{lt.toFixed(2)}</span>
                     </div>
                     {ld > 0 && (
                       <div className="flex justify-between text-[11px] text-amber-600 dark:text-amber-400 pl-2">
-                        <span>{t('pos.discount')} {item.discount_type === 'fixed' ? '৳' : ''}{item.discount_value}{item.discount_type === 'percentage' ? '%' : ''}</span>
-                        <span>-৳{ld.toFixed(2)}</span>
+                        <span>{t('pos.discount')} {item.discount_type === 'fixed' ? currencySymbol : ''}{item.discount_value}{item.discount_type === 'percentage' ? '%' : ''}</span>
+                        <span>-{currencySymbol}{ld.toFixed(2)}</span>
                       </div>
                     )}
                   </div>
@@ -814,7 +877,7 @@ export default function POSPage() {
 
       {/* Receipt dialog */}
       <Dialog open={receiptOpen} onOpenChange={setReceiptOpen}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-sm max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <div className="flex items-center justify-center mb-4">
               <div className="w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
@@ -830,7 +893,7 @@ export default function POSPage() {
                 <p>{new Date(lastInvoice.sale_date).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US')}</p>
               </div>
               <Separator />
-              <div className="space-y-1">
+              <div className="max-h-40 space-y-1 overflow-y-auto">
                 {lastInvoice.items?.map((item: any) => {
                   const ld = calcLineDiscount(item);
                   const lt = calcLineTotal(item);
@@ -838,12 +901,12 @@ export default function POSPage() {
                   <div key={item.product_id} className="py-0.5">
                     <div className="flex justify-between text-sm">
                       <span>{item.quantity}x {item.name}</span>
-                      <span>৳{(item.price * item.quantity).toFixed(2)}</span>
+                      <span>{currencySymbol}{(item.price * item.quantity).toFixed(2)}</span>
                     </div>
                     {ld > 0 && (
                       <div className="flex justify-between text-[11px] text-amber-600 dark:text-amber-400 pl-2">
-                        <span>{t('pos.discount')} {item.discount_type === 'fixed' ? '৳' : ''}{item.discount_value}{item.discount_type === 'percentage' ? '%' : ''}</span>
-                        <span>-৳{ld.toFixed(2)} → ৳{lt.toFixed(2)}</span>
+                        <span>{t('pos.discount')} {item.discount_type === 'fixed' ? currencySymbol : ''}{item.discount_value}{item.discount_type === 'percentage' ? '%' : ''}</span>
+                        <span>-{currencySymbol}{ld.toFixed(2)} → {currencySymbol}{lt.toFixed(2)}</span>
                       </div>
                     )}
                   </div>
@@ -852,17 +915,20 @@ export default function POSPage() {
               </div>
               <Separator />
               <div className="space-y-1">
-                <div className="flex justify-between text-sm"><span className="text-muted-foreground">{t('pos.subtotal')}</span><span>৳{Number(lastInvoice.subtotal).toFixed(2)}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-muted-foreground">{t('pos.subtotal')}</span><span>{lastInvoice.currency_symbol}{Number(lastInvoice.subtotal).toFixed(2)}</span></div>
+                {Number(lastInvoice.manual_discount) > 0 && (
+                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">{t('pos.extraDiscount')}</span><span>-{lastInvoice.currency_symbol}{Number(lastInvoice.manual_discount).toFixed(2)}</span></div>
+                )}
                 {Number(lastInvoice.item_discounts) > 0 && (
-                  <div className="flex justify-between text-sm"><span className="text-amber-600 dark:text-amber-400">{t('pos.productDiscounts')}</span><span className="text-amber-600 dark:text-amber-400">-৳{Number(lastInvoice.item_discounts).toFixed(2)}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-amber-600 dark:text-amber-400">{t('pos.productDiscounts')}</span><span className="text-amber-600 dark:text-amber-400">-{lastInvoice.currency_symbol}{Number(lastInvoice.item_discounts).toFixed(2)}</span></div>
                 )}
                 {lastInvoice.offer && Number(lastInvoice.offer.discount) > 0 && (
-                  <div className="flex justify-between text-sm"><span className="text-amber-600 dark:text-amber-400 flex items-center gap-1"><Gift className="w-3 h-3" /> {lastInvoice.offer.name}</span><span className="text-amber-600 dark:text-amber-400">-৳{Number(lastInvoice.offer.discount).toFixed(2)}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-amber-600 dark:text-amber-400 flex items-center gap-1"><Gift className="w-3 h-3" /> {lastInvoice.offer.name}</span><span className="text-amber-600 dark:text-amber-400">-{lastInvoice.currency_symbol}{Number(lastInvoice.offer.discount).toFixed(2)}</span></div>
                 )}
-                <div className="flex justify-between text-sm"><span className="text-muted-foreground">{t('pos.tax')}</span><span>৳{Number(lastInvoice.tax).toFixed(2)}</span></div>
-                <div className="flex justify-between text-lg font-bold"><span>{t('common.total')}</span><span className="text-amber-600 dark:text-amber-400">৳{Number(lastInvoice.total).toFixed(2)}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-muted-foreground">{t('pos.tax')}</span><span>{lastInvoice.currency_symbol}{Number(lastInvoice.tax).toFixed(2)}</span></div>
+                <div className="flex justify-between text-lg font-bold"><span>{t('common.total')}</span><span className="text-amber-600 dark:text-amber-400">{lastInvoice.currency_symbol}{Number(lastInvoice.total).toFixed(2)}</span></div>
                 {Number(lastInvoice.due_amount) > 0 && (
-                  <div className="flex justify-between text-sm text-amber-600"><span>{t('pos.due')}</span><span>৳{Number(lastInvoice.due_amount).toFixed(2)}</span></div>
+                  <div className="flex justify-between text-sm text-amber-600"><span>{t('pos.due')}</span><span>{lastInvoice.currency_symbol}{Number(lastInvoice.due_amount).toFixed(2)}</span></div>
                 )}
               </div>
               <p className="text-center text-xs text-muted-foreground pt-2">{t('pos.thankYou')}</p>
@@ -909,6 +975,15 @@ export default function POSPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {printPortalReady && lastInvoice && storeSettings && createPortal(
+        <ThermalReceipt
+          sale={lastInvoice}
+          items={lastInvoice.items}
+          customer={lastInvoice.customer}
+          settings={storeSettings}
+        />,
+        document.body
+      )}
     </div>
   );
 }

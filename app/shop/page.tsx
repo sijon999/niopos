@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
+import NextImage from 'next/image';
 import { motion } from 'framer-motion';
 import {
   Search,
@@ -201,7 +202,7 @@ export default function ShopPage() {
               Shop Fashion Online
             </h1>
             <p className="text-slate-300 max-w-lg mb-4">
-              Browse our full collection of shirts, pants, panjabi, jeans, and more. Premium quality clothing at prices you'll love.
+              Browse our full collection of shirts, pants, panjabi, jeans, and more. Premium quality clothing at prices you&apos;ll love.
             </p>
             <div className="flex items-center gap-4 flex-wrap">
               <div className="flex items-center gap-2">
@@ -383,7 +384,7 @@ export default function ShopPage() {
                       <Card className="group overflow-hidden hover:shadow-xl transition-all duration-300 border-border/60 flex flex-col h-full">
                         <div className="aspect-square bg-gradient-to-br from-slate-50 to-amber-50 dark:from-slate-900/30 dark:to-amber-900/20 flex items-center justify-center relative overflow-hidden">
                           {product.image_url ? (
-                            <img src={product.image_url} alt={product.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                            <NextImage src={product.image_url} alt={product.name} fill sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw" className="object-cover group-hover:scale-110 transition-transform duration-500" />
                           ) : (
                             <span className="text-5xl group-hover:scale-110 transition-transform">
                               {getProductEmoji(product.name, product.categories?.name)}

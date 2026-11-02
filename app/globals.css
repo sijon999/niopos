@@ -114,3 +114,113 @@
   background: linear-gradient(90deg, hsl(var(--muted)) 0%, hsl(var(--muted-foreground) / 0.1) 50%, hsl(var(--muted)) 100%);
   background-size: 1000px 100%;
 }
+
+.thermal-receipt {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: 80mm auto;
+    margin: 3mm;
+  }
+
+  html,
+  body {
+    width: 80mm !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+
+  body > *:not(.thermal-receipt) {
+    display: none !important;
+  }
+
+  .thermal-receipt {
+    display: block !important;
+    width: 74mm !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    color: #000 !important;
+    background: #fff !important;
+    font-family: Arial, sans-serif !important;
+    font-size: 10pt !important;
+    line-height: 1.35 !important;
+  }
+
+  .thermal-receipt * {
+    color: #000 !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  .receipt-center {
+    text-align: center !important;
+  }
+
+  .receipt-store {
+    margin-bottom: 3mm !important;
+  }
+
+  .receipt-store h1 {
+    margin: 0 0 1mm !important;
+    font-size: 15pt !important;
+    font-weight: 700 !important;
+  }
+
+  .receipt-store p,
+  .thermal-receipt p {
+    margin: 0.5mm 0 !important;
+  }
+
+  .receipt-title {
+    margin: 2mm 0 !important;
+    font-weight: 700 !important;
+  }
+
+  .receipt-rule {
+    margin: 2mm 0 !important;
+    border-top: 1px dashed #000 !important;
+  }
+
+  .receipt-barcode {
+    margin: 2mm 0 !important;
+  }
+
+  .receipt-barcode-svg {
+    display: inline-block !important;
+    max-width: 72mm !important;
+    height: auto !important;
+  }
+
+  .receipt-item {
+    padding: 1mm 0 !important;
+  }
+
+  .receipt-row {
+    display: flex !important;
+    justify-content: space-between !important;
+    gap: 2mm !important;
+  }
+
+  .receipt-item-name {
+    font-weight: 600 !important;
+  }
+
+  .receipt-muted {
+    font-size: 9pt !important;
+  }
+
+  .receipt-total {
+    margin: 1mm 0 !important;
+    padding-top: 1mm !important;
+    border-top: 1px solid #000 !important;
+    font-size: 12pt !important;
+  }
+
+  .receipt-footer {
+    margin-top: 3mm !important;
+  }
+}
