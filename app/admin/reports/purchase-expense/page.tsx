@@ -338,7 +338,7 @@ export default function PurchaseExpenseReportPage() {
       summaryRequest,
     ]);
     if (error || summaryError) {
-      toast.error('Could not load transactions');
+      toast.error(`Could not load transactions: ${error?.message || summaryError?.message || 'Unknown error'}`);
       setRows([]);
       setTotalRows(0);
       setSummary({ purchase: 0, expense: 0, outflow: 0, count: 0 });
