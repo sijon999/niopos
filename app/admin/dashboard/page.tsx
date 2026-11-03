@@ -85,13 +85,22 @@ export default function DashboardPage() {
         recentSalesRes,
         todayProfitRes,
       ] = await Promise.all([
-        supabase.from('sales').select('total, sale_date').gte('sale_date', todayStart),
-        supabase.from('sales').select('total, due_amount').eq('payment_status', 'due').gte('sale_date', todayStart),
+        supabase.from('sales').select('total, sale_date').eq('status', 'completed').gte('sale_date', todayStart),
+        supabase.from('sales').select('total, due_amount').eq('status', 'completed').eq('payment_status', 'due').gte('sale_date', todayStart),
         supabase.from('expenses').select('amount').gte('date', todayStart),
         supabase.from('customer_payments').select('amount').gte('payment_date', todayStart),
         supabase.from('purchases').select('total').gte('purchase_date', todayStart),
         supabase.from('purchases').select('total, due_amount').eq('payment_status', 'due').gte('purchase_date', todayStart),
-        supabase.from('sale_returns').select('total').gte('return_date', todayStart),
+        supabase.rpc('get_sales_return_report', {
+          p_date_from: todayStart,
+          p_date_to: null,
+          p_customer_id: null,
+          p_product_ids: [],
+          p_category_ids: [],
+          p_brand_ids: [],
+          p_units: [],
+          p_time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+        }),
         supabase.from('purchase_returns').select('total').gte('return_date', todayStart),
         supabase.from('customer_payments').select('amount').gte('payment_date', todayStart),
         supabase.from('supplier_payments').select('amount').gte('payment_date', todayStart),
@@ -124,7 +133,16 @@ export default function DashboardPage() {
       const income = incomeRes.data?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
       const totalPurchases = purchasesRes.data?.reduce((sum, p) => sum + Number(p.total), 0) || 0;
       const duePurchases = duePurchasesRes.data?.reduce((sum, p) => sum + Number(p.due_amount || p.total), 0) || 0;
-      const saleReturns = saleReturnsRes.data?.reduce((sum, r) => sum + Number(r.total), 0) || 0;
+      if (saleReturnsRes.error) {
+        toast.error(`${t('dashboard.profitLoadFailed')}: ${saleReturnsRes.error.message}`);
+      }
+      const returnReport = saleReturnsRes.error
+        ? null
+        : saleReturnsRes.data as {
+          total_return: number;
+          profit_reversal: number;
+        } | null;
+      const saleReturns = returnReport ? Number(returnReport.total_return || 0) : null;
       const purchaseReturns = purchaseReturnsRes.data?.reduce((sum, r) => sum + Number(r.total), 0) || 0;
       const todayCollections = todayCollectionsRes.data?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
       const todayPayments = todayPaymentsRes.data?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
@@ -138,17 +156,19 @@ export default function DashboardPage() {
       }
       const netProfit = todayProfitRes.error
         ? null
-        : Number(todayProfitRes.data || 0) + income - expenses;
+        : returnReport
+          ? Number(todayProfitRes.data || 0) - Number(returnReport.profit_reversal || 0) + income - expenses
+          : null;
 
       const statBoxes: StatBox[] = [
-        { labelKey: 'dashboard.totalSales', value: fmt(todaySales), icon: ShoppingCart, color: 'from-slate-800 to-black' },
+        { labelKey: 'dashboard.netSales', value: saleReturns === null ? '—' : fmt(todaySales - saleReturns), icon: ShoppingCart, color: 'from-slate-800 to-black' },
         { labelKey: 'dashboard.netProfit', value: netProfit === null ? '—' : fmt(netProfit), icon: TrendingUp, color: 'from-emerald-500 to-green-600' },
         { labelKey: 'dashboard.dueSales', value: fmt(todayDueSales), icon: CreditCard, color: 'from-amber-500 to-orange-600' },
         { labelKey: 'dashboard.expenses', value: fmt(expenses), icon: CreditCard, color: 'from-rose-500 to-pink-600' },
         { labelKey: 'dashboard.income', value: fmt(income), icon: HandCoins, color: 'from-teal-500 to-cyan-600' },
         { labelKey: 'dashboard.totalPurchases', value: fmt(totalPurchases), icon: Truck, color: 'from-blue-500 to-indigo-600' },
         { labelKey: 'dashboard.duePurchases', value: fmt(duePurchases), icon: Truck, color: 'from-violet-500 to-purple-600' },
-        { labelKey: 'dashboard.salesReturns', value: fmt(saleReturns), icon: RotateCcw, color: 'from-orange-500 to-red-600' },
+        { labelKey: 'dashboard.salesReturns', value: saleReturns === null ? '—' : fmt(saleReturns), icon: RotateCcw, color: 'from-orange-500 to-red-600' },
         { labelKey: 'dashboard.purchaseReturns', value: fmt(purchaseReturns), icon: RotateCcw, color: 'from-red-500 to-rose-600' },
         { labelKey: 'dashboard.todayCollections', value: fmt(todayCollections), icon: Wallet, color: 'from-green-500 to-emerald-600' },
         { labelKey: 'dashboard.todayPayments', value: fmt(todayPayments), icon: Banknote, color: 'from-cyan-500 to-blue-600' },

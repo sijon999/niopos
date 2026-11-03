@@ -289,11 +289,21 @@ export type Settings = {
 export type SaleReturn = {
   id: string;
   invoice_number: string;
+  store_id: string | null;
   original_sale_id: string | null;
   customer_id: string | null;
   return_date: string;
   reason: string | null;
+  subtotal: number;
+  discount: number;
+  tax: number;
   total: number;
+  refund_method: string | null;
+  refund_amount: number;
+  due_adjustment: number | null;
+  processed_by: string | null;
+  processed_by_name: string | null;
+  idempotency_key: string | null;
   status: string;
   created_at: string;
   customers?: Customer | null;
@@ -307,7 +317,14 @@ export type SaleReturnItem = {
   product_name: string;
   quantity: number;
   price: number;
+  discount: number;
+  tax: number;
   total: number;
+  original_sale_item_id: string | null;
+  condition: 'good' | 'damaged';
+  reason: string | null;
+  purchase_price: number | null;
+  profit_reversal: number;
   created_at: string;
 };
 

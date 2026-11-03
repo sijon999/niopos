@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
+import { useTranslation } from '@/hooks/use-translation';
 
 type DatePreset = 'today' | 'yesterday' | 'thisWeek' | 'thisMonth' | 'lastMonth' | 'all' | 'custom';
 type ReportFilters = {
@@ -42,6 +43,13 @@ type ReportFilters = {
   maxAmount: string;
 };
 type FilterOption = { id: string; name: string };
+type ReturnReportSummary = {
+  currency_symbol: string | null;
+  total_return: number;
+  total_refund: number;
+  profit_reversal: number;
+  daily: { return_day: string; total_return: number }[];
+};
 
 const EMPTY_FILTERS: ReportFilters = {
   datePreset: 'all',
@@ -126,6 +134,7 @@ function MultiSelectFilter({
 }
 
 export default function ReportsPage() {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [dailyData, setDailyData] = useState<any[]>([]);
   const [topProducts, setTopProducts] = useState<any[]>([]);
@@ -133,6 +142,14 @@ export default function ReportsPage() {
   const [sales, setSales] = useState<any[]>([]);
   const [purchases, setPurchases] = useState<any[]>([]);
   const [totalProfit, setTotalProfit] = useState<number | null>(null);
+  const [currencySymbol, setCurrencySymbol] = useState('');
+  const [returnSummary, setReturnSummary] = useState<ReturnReportSummary>({
+    currency_symbol: null,
+    total_return: 0,
+    total_refund: 0,
+    profit_reversal: 0,
+    daily: [],
+  });
 
   const [appliedFilters, setAppliedFilters] = useState<ReportFilters>(() => {
     const range = getPresetRange('thisMonth');
@@ -222,7 +239,7 @@ export default function ReportsPage() {
       }
     }
 
-    const [salesRes, purchaseRes, profitRes] = await Promise.all([
+    const [salesRes, purchaseRes, profitRes, returnsRes] = await Promise.all([
       matchingProductIds?.length === 0
         ? Promise.resolve({ data: [], error: null })
         : salesQuery,
@@ -240,17 +257,45 @@ export default function ReportsPage() {
         p_brand_ids: appliedFilters.brandIds,
         p_units: appliedFilters.units,
       }),
+      supabase.rpc('get_sales_return_report', {
+        p_date_from: appliedFilters.dateFrom ? localBoundary(appliedFilters.dateFrom, false) : null,
+        p_date_to: appliedFilters.dateTo ? localBoundary(appliedFilters.dateTo, true) : null,
+        p_customer_id: appliedFilters.customerId === 'all' ? null : appliedFilters.customerId,
+        p_product_ids: appliedFilters.productIds,
+        p_category_ids: appliedFilters.categoryIds,
+        p_brand_ids: appliedFilters.brandIds,
+        p_units: appliedFilters.units,
+        p_time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+        p_payment_method: appliedFilters.paymentMethod === 'all' ? null : appliedFilters.paymentMethod,
+        p_status: appliedFilters.status,
+        p_min_amount: appliedFilters.minAmount ? Number(appliedFilters.minAmount) : null,
+        p_max_amount: appliedFilters.maxAmount ? Number(appliedFilters.maxAmount) : null,
+      }),
     ]);
     if (salesRes.error || purchaseRes.error) {
       toast.error(`Unable to load reports: ${salesRes.error?.message || purchaseRes.error?.message}`);
       setLoading(false);
       return;
     }
+    if (returnsRes.error) {
+      toast.error(`${t('salesReturns.reportLoadFailed')} ${returnsRes.error.message}`);
+      setLoading(false);
+      return;
+    }
+    const returnData = returnsRes.data as unknown as ReturnReportSummary;
+    if (!returnData || !Array.isArray(returnData.daily)) {
+      toast.error(t('salesReturns.reportLoadFailed'));
+      setLoading(false);
+      return;
+    }
+    setReturnSummary(returnData);
+    setCurrencySymbol(returnData.currency_symbol || '');
+
     if (profitRes.error) {
       toast.error(`Unable to load sales profit: ${profitRes.error.message}`);
       setTotalProfit(null);
     } else {
-      setTotalProfit(Number(profitRes.data || 0));
+      setTotalProfit(Number(profitRes.data || 0) - Number(returnData.profit_reversal || 0));
     }
 
     const salesData = (salesRes.data || []).filter((s: any) =>
@@ -263,13 +308,19 @@ export default function ReportsPage() {
 
     const now = new Date();
     const days: any[] = [];
+    const returnsByDay = new Map(
+      returnData.daily.map((item) => [item.return_day, Number(item.total_return)])
+    );
     for (let i = 29; i >= 0; i--) {
       const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
       const dayEnd = new Date(dayStart.getTime() + 86400000);
       const daySales = salesData.filter((s: any) => new Date(s.sale_date) >= dayStart && new Date(s.sale_date) < dayEnd);
+      const dailySales = daySales.reduce((sum: number, s: any) => sum + Number(s.total), 0);
+      const dailyReturns = returnsByDay.get(toDateInputValue(dayStart)) || 0;
       days.push({
         date: dayStart.toLocaleDateString('en', { month: 'short', day: 'numeric' }),
-        sales: Math.round(daySales.reduce((sum: number, s: any) => sum + Number(s.total), 0) * 100) / 100,
+        sales: Math.round((dailySales - dailyReturns) * 100) / 100,
+        returns: dailyReturns,
         orders: daySales.length,
       });
     }
@@ -297,7 +348,7 @@ export default function ReportsPage() {
     setTopProducts(Object.values(productMap).sort((a, b) => b.revenue - a.revenue).slice(0, 5));
 
     setLoading(false);
-  }, [appliedFilters]);
+  }, [appliedFilters, t]);
 
   useEffect(() => {
     void loadReports().catch((error: unknown) => {
@@ -307,6 +358,7 @@ export default function ReportsPage() {
   }, [loadReports]);
 
   const totalSalesAmount = sales.reduce((s: number, sale: any) => s + Number(sale.total), 0);
+  const netSalesAmount = totalSalesAmount - Number(returnSummary.total_return || 0);
   const totalDiscount = sales.reduce((s: number, sale: any) => s + Number(sale.discount), 0);
   const totalPaid = sales.reduce((s: number, sale: any) => s + Number(sale.paid), 0);
   const totalDue = sales.reduce((s: number, sale: any) => s + Number(sale.due_amount), 0);
@@ -318,11 +370,12 @@ export default function ReportsPage() {
   const totalPurchaseOrders = purchases.length;
 
   const salesReportCards = [
-    { label: 'Total Sales', value: `৳${totalSalesAmount.toFixed(2)}`, icon: DollarSign, color: 'from-amber-500 to-orange-600' },
-    { label: 'Total Profit', value: totalProfit === null ? '—' : `৳${totalProfit.toFixed(2)}`, icon: Package, color: 'from-emerald-500 to-green-600' },
+    { label: t('reports.netSales'), value: `${currencySymbol}${netSalesAmount.toFixed(2)}`, icon: DollarSign, color: 'from-amber-500 to-orange-600' },
+    { label: t('reports.totalProfit'), value: totalProfit === null ? '—' : `${currencySymbol}${totalProfit.toFixed(2)}`, icon: Package, color: 'from-emerald-500 to-green-600' },
     { label: 'Total Orders', value: totalOrders.toString(), icon: ShoppingCart, color: 'from-slate-800 to-black' },
     { label: 'Total Discount', value: `৳${totalDiscount.toFixed(2)}`, icon: TrendingUp, color: 'from-blue-500 to-cyan-600' },
     { label: 'Total Due', value: `৳${totalDue.toFixed(2)}`, icon: FileBarChart, color: 'from-rose-500 to-pink-600' },
+    { label: t('reports.totalRefund'), value: `${currencySymbol}${Number(returnSummary.total_refund || 0).toFixed(2)}`, icon: Receipt, color: 'from-violet-500 to-purple-600' },
   ];
 
   const purchaseReportCards = [
@@ -656,6 +709,7 @@ export default function ReportsPage() {
               <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px' }} />
               <Legend />
               <Line type="monotone" dataKey="sales" stroke="hsl(142, 71%, 45%)" strokeWidth={2} dot={false} name="Sales (৳)" />
+              <Line type="monotone" dataKey="returns" stroke="hsl(0, 72%, 51%)" strokeWidth={2} dot={false} name={t('salesReturns.totalReturn')} />
               <Line type="monotone" dataKey="orders" stroke="hsl(173, 58%, 39%)" strokeWidth={2} dot={false} name="Orders" />
             </LineChart>
           </ResponsiveContainer>

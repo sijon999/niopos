@@ -64,8 +64,8 @@ function printBarcodeLabels(labels: BarcodePrintLabel[], storeName: string): boo
   const barcodeScripts = labels.map((label, index) => `
     JsBarcode("#barcode-${index}", ${escapeScriptString(label.barcode)}, {
       format: ${escapeScriptString(label.format || 'CODE128')},
-      width: 1.5,
-      height: 35,
+      width: 1.2,
+      height: 34,
       displayValue: false,
       margin: 0,
       lineColor: "#000000",
@@ -89,23 +89,26 @@ function printBarcodeLabels(labels: BarcodePrintLabel[], storeName: string): boo
           .label {
             width: 50mm; height: 30mm; display: flex; flex-direction: column;
             align-items: center; justify-content: flex-start; text-align: center;
-            padding: 2.2mm 2mm 1.2mm; margin: 0; overflow: hidden;
+            padding: 1mm 2mm 0.7mm; margin: 0; overflow: hidden;
             background: #fff; page-break-after: always; break-after: page;
           }
           .store, .product-name, .price {
             width: 100%; line-height: 1; white-space: nowrap; overflow: hidden;
             text-overflow: ellipsis; color: #000;
           }
-          .store { font-size: 13px; font-weight: 800; margin: 0 0 0.6mm; }
-          .product-name { font-size: 10px; font-weight: 700; margin: 0 0 0.8mm; }
-          .price { font-size: 12px; font-weight: 800; margin: 0 0 0.7mm; }
+          .store { font-size: 10px; font-weight: 800; margin: 0 0 0.3mm; }
+          .product-name { font-size: 9px; font-weight: 700; margin: 0 0 0.4mm; }
+          .price { font-size: 11px; font-weight: 400; margin: 0 0 0.4mm; }
           .barcode-container {
             width: 45mm; height: 10mm; display: flex; align-items: center;
             justify-content: center; overflow: hidden; margin: 0; padding: 0;
           }
-          .barcode-container svg { width: 44mm; height: 9mm; display: block; }
+          .barcode-container svg {
+            width: auto; height: auto; max-width: 100%; max-height: 9mm;
+            display: block;
+          }
           .barcode-number {
-            font-size: 11px; font-weight: 600; line-height: 1; margin-top: 0.5mm;
+            font-size: 10px; font-weight: 600; line-height: 1; margin-top: 0.3mm;
             color: #000; letter-spacing: 0.5px;
           }
           @media print {

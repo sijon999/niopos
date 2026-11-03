@@ -191,13 +191,19 @@ export default function AdminLayout({
       { href: '/admin/stores', labelKey: 'navigation.stores', icon: Store },
     ]
     : [
-        { href: '/admin/dashboard', labelKey: 'navigation.dashboard', icon: LayoutDashboard },
-        { href: '/admin/pos', labelKey: 'navigation.pos', icon: ShoppingCart },
-        { href: '/admin/products', labelKey: 'navigation.product', icon: Package, children: [
+      { href: '/admin/dashboard', labelKey: 'navigation.dashboard', icon: LayoutDashboard },
+      { href: '/admin/products', labelKey: 'navigation.product', icon: Package, children: [
           { href: '/admin/products', labelKey: 'navigation.product' },
           { href: '/admin/brands', labelKey: 'navigation.brands' },
           { href: '/admin/categories', labelKey: 'navigation.categories' },
           { href: '/admin/units', labelKey: 'navigation.units' },
+        ] },
+        { href: '/admin/sales', labelKey: 'navigation.sales', icon: ShoppingBag, children: [
+          { href: '/admin/pos', labelKey: 'navigation.pos' },
+          { href: '/admin/sales', labelKey: 'navigation.allSales' },
+          { href: '/admin/sales/return', labelKey: 'navigation.salesReturn' },
+          { href: '/admin/sales/returns', labelKey: 'navigation.returnHistory' },
+          { href: '/admin/reports', labelKey: 'navigation.salesReports' },
         ] },
         { href: '/admin/inventory', labelKey: 'navigation.inventory', icon: Boxes, children: [
           { href: '/admin/inventory', labelKey: 'navigation.inventory' },
@@ -213,9 +219,7 @@ export default function AdminLayout({
         { href: '/admin/suppliers', labelKey: 'navigation.suppliers', icon: Truck },
         { href: '/admin/employees', labelKey: 'navigation.employees', icon: UserCog },
         { href: '/admin/purchases', labelKey: 'navigation.purchases', icon: Receipt },
-        { href: '/admin/sales', labelKey: 'navigation.sales', icon: ShoppingBag },
         { href: '/admin/expenses', labelKey: 'navigation.expenses', icon: CreditCard },
-        { href: '/admin/reports', labelKey: 'navigation.reports', icon: FileBarChart },
         { href: '/admin/settings', labelKey: 'navigation.settings', icon: Settings },
       ];
 
@@ -236,6 +240,7 @@ export default function AdminLayout({
     });
   const currentPage = visibleNavItems
     .flatMap((item) => [item, ...(item.children ?? [])])
+    .sort((left, right) => right.href.length - left.href.length)
     .find((item) => pathname === item.href || pathname.startsWith(item.href + '/'));
   const barcodeExpanded = pathname.startsWith('/admin/barcode');
   const [barcodeOpen, setBarcodeOpen] = useState(false);
@@ -248,6 +253,10 @@ export default function AdminLayout({
     .some((route) => pathname === route || pathname.startsWith(`${route}/`));
   const [inventoryOpen, setInventoryOpen] = useState(inventoryExpanded);
   useEffect(() => { if (inventoryExpanded) setInventoryOpen(true); }, [pathname, inventoryExpanded]);
+  const salesExpanded = pathname === '/admin/reports'
+    || pathname.startsWith('/admin/sales');
+  const [salesOpen, setSalesOpen] = useState(salesExpanded);
+  useEffect(() => { if (salesExpanded) setSalesOpen(true); }, [pathname, salesExpanded]);
 
   const switchLanguage = (newLocale: Locale) => {
     setLocale(newLocale);
@@ -323,12 +332,16 @@ export default function AdminLayout({
                 ? productOpen
                 : item.href === '/admin/inventory'
                   ? inventoryOpen
-                  : barcodeOpen;
+                  : item.href === '/admin/barcode'
+                    ? barcodeOpen
+                    : salesOpen;
               const setSubmenuOpen = item.href === '/admin/products'
                 ? setProductOpen
                 : item.href === '/admin/inventory'
                   ? setInventoryOpen
-                  : setBarcodeOpen;
+                  : item.href === '/admin/barcode'
+                    ? setBarcodeOpen
+                    : setSalesOpen;
               return (
                 <div key={item.href}>
                   <button
