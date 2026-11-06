@@ -53,7 +53,9 @@ export default function CustomersPage() {
     }
 
     const normalizedPhone = normalizePhone(form.phone);
-    if (normalizedPhone) {
+    const shouldCheckPhone = normalizedPhone
+      && (!editing || normalizedPhone !== normalizePhone(editing.phone || ''));
+    if (shouldCheckPhone) {
       let duplicateQuery = supabase
         .from('customers')
         .select('id')
@@ -61,7 +63,7 @@ export default function CustomersPage() {
         .eq('phone_normalized', normalizedPhone);
       if (editing) duplicateQuery = duplicateQuery.neq('id', editing.id);
 
-      const { data: duplicate, error: duplicateError } = await duplicateQuery.maybeSingle();
+      const { data: duplicate, error: duplicateError } = await duplicateQuery.limit(1).maybeSingle();
       if (duplicateError) {
         console.error('Could not check for duplicate customer mobile number', duplicateError);
         toast.error('Could not verify this mobile number. Please try again.');
