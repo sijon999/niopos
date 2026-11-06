@@ -22,6 +22,7 @@ import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import type { Category, Brand, Unit, Product } from '@/types';
 import { useTranslation } from '@/hooks/use-translation';
+import { useConfirmation } from '@/hooks/use-confirmation';
 import {
   parseCSV, autoMapColumns, applyMapping, validateRows,
   generateTemplateCSV, generateErrorReportCSV, downloadFile,
@@ -46,6 +47,7 @@ export function ImportCSVDialog({
   open, onOpenChange, categories, brands, units, existingProducts, onComplete,
 }: Props) {
   const { t } = useTranslation();
+  const { confirmUpdate, dialog: confirmationDialog } = useConfirmation();
   const [step, setStep] = useState<Step>('upload');
   const [fileName, setFileName] = useState('');
   const [headers, setHeaders] = useState<string[]>([]);
@@ -278,10 +280,33 @@ export function ImportCSVDialog({
     }
   };
 
+  const handleImport = async () => {
+    if (!validation || importMode !== 'update') {
+      await runImport();
+      return;
+    }
+
+    const refs = buildRefMaps(categories, brands, units);
+    const hasExistingUpdates = validation.validRows.some((row) => {
+      const data = rowToProductData(row, refs);
+      const matchField = data.product_code ? 'product_code' : data.barcode ? 'barcode' : data.sku ? 'sku' : null;
+      if (!matchField) return false;
+      const matchValue = String(data[matchField]).toLowerCase();
+      return existingProducts.some((product) => String(product[matchField] || '').toLowerCase() === matchValue);
+    });
+
+    if (!hasExistingUpdates) {
+      await runImport();
+      return;
+    }
+    await confirmUpdate({ action: runImport, successMessage: null });
+  };
+
   const unmappedCount = headers.filter((_, i) => !mapping[i]).length;
   const previewRows = parsedRows.slice(0, 15);
 
   return (
+    <>
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
@@ -588,7 +613,7 @@ export function ImportCSVDialog({
                 {t('csvImport.backToMapping')}
               </Button>
               <Button
-                onClick={runImport}
+                onClick={handleImport}
                 disabled={!validation || validation.validRows.length === 0}
                 className="bg-indigo-600 hover:bg-indigo-700"
               >
@@ -618,5 +643,7 @@ export function ImportCSVDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    {confirmationDialog}
+    </>
   );
 }

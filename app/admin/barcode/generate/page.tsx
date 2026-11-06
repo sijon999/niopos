@@ -24,6 +24,7 @@ import { supabase } from '@/lib/supabase';
 import { Barcode } from '@/components/barcode';
 import type { Product } from '@/types';
 import { toast } from 'sonner';
+import { useConfirmation } from '@/hooks/use-confirmation';
 
 type BarcodePrintLabel = {
   name: string;
@@ -170,6 +171,7 @@ export default function GenerateBarcodePage() {
   const [saving, setSaving] = useState(false);
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
   const [bulkMode, setBulkMode] = useState(false);
+  const { confirmUpdate, dialog: confirmationDialog } = useConfirmation();
   const previewRef = useRef<HTMLDivElement>(null);
   const storeNameEdited = useRef(false);
 
@@ -254,38 +256,49 @@ export default function GenerateBarcodePage() {
       return;
     }
     setSaving(true);
-    const { data: dup } = await supabase
+    const { data: dup, error: duplicateError } = await supabase
       .from('products')
       .select('id, name')
       .eq('barcode', barcodeValue)
       .neq('id', selected.id)
       .maybeSingle();
+    if (duplicateError) {
+      toast.error(duplicateError.message);
+      setSaving(false);
+      return;
+    }
     if (dup) {
       toast.error(`Barcode already used by: ${dup.name}`);
       setSaving(false);
       return;
     }
-    const { error } = await supabase
-      .from('products')
-      .update({ barcode: barcodeValue, barcode_format: barcodeFormat })
-      .eq('id', selected.id);
-    if (error) {
-      toast.error('Failed to save barcode');
-      setSaving(false);
-      return;
-    }
-    await supabase.from('barcode_history').insert({
-      product_id: selected.id,
-      product_name: selected.name,
-      barcode: barcodeValue,
-      barcode_format: barcodeFormat,
-      quantity_printed: quantity,
-      branch: storeName.trim() || 'main',
-      generated_by: 'admin',
-    });
-    setProducts((prev) => prev.map((p) => p.id === selected.id ? { ...p, barcode: barcodeValue, barcode_format: barcodeFormat } : p));
-    toast.success('Barcode saved and logged to history');
     setSaving(false);
+    await confirmUpdate({
+      successMessage: 'Barcode saved and logged to history',
+      action: async () => {
+        setSaving(true);
+        try {
+          const { error } = await supabase
+            .from('products')
+            .update({ barcode: barcodeValue, barcode_format: barcodeFormat })
+            .eq('id', selected.id);
+          if (error) throw error;
+          const { error: historyError } = await supabase.from('barcode_history').insert({
+            product_id: selected.id,
+            product_name: selected.name,
+            barcode: barcodeValue,
+            barcode_format: barcodeFormat,
+            quantity_printed: quantity,
+            branch: storeName.trim() || 'main',
+            generated_by: 'admin',
+          });
+          if (historyError) throw historyError;
+          setProducts((prev) => prev.map((p) => p.id === selected.id ? { ...p, barcode: barcodeValue, barcode_format: barcodeFormat } : p));
+        } finally {
+          setSaving(false);
+        }
+      },
+    });
   };
 
   const downloadBarcodePNG = () => {
@@ -369,6 +382,7 @@ export default function GenerateBarcodePage() {
             </Button>
           )}
         </div>
+        {confirmationDialog}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

@@ -14,13 +14,11 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { supabase } from '@/lib/supabase';
 import type { Category } from '@/types';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/use-translation';
+import { useConfirmation } from '@/hooks/use-confirmation';
 
 export default function CategoriesPage() {
   const { t, locale } = useTranslation();
@@ -37,6 +35,7 @@ export default function CategoriesPage() {
   const [deleteTarget, setDeleteTarget] = useState<Category | null>(null);
   const [deleteInfo, setDeleteInfo] = useState<{ productCount: number; loading: boolean } | null>(null);
   const [reassignTarget, setReassignTarget] = useState<string>('');
+  const { confirmUpdate, confirmDelete, dialog: confirmationDialog } = useConfirmation();
 
   useEffect(() => { loadData(); }, []);
 
@@ -67,20 +66,32 @@ export default function CategoriesPage() {
 
   const handleSave = async () => {
     if (!name.trim()) { toast.error(t('categories.nameRequired')); return; }
-    setSaving(true);
-
     const dup = categories.find((c) => c.name.toLowerCase() === name.toLowerCase().trim() && c.id !== editing?.id);
-    if (dup) { toast.error(t('categories.nameExists')); setSaving(false); return; }
+    if (dup) { toast.error(t('categories.nameExists')); return; }
 
     if (editing) {
-      const { error } = await supabase.from('categories').update({ name, description, status }).eq('id', editing.id);
-      if (error) { toast.error(t('common.updateFailed')); setSaving(false); return; }
-      toast.success(t('categories.updateSuccess'));
-    } else {
-      const { error } = await supabase.from('categories').insert({ name, description, status });
-      if (error) { toast.error(t('common.createFailed')); setSaving(false); return; }
-      toast.success(t('categories.createSuccess'));
+      const categoryId = editing.id;
+      await confirmUpdate({
+        successMessage: t('categories.updateSuccess'),
+        action: async () => {
+          setSaving(true);
+          try {
+            const { error } = await supabase.from('categories').update({ name, description, status }).eq('id', categoryId);
+            if (error) throw error;
+            setDialogOpen(false);
+            await loadData();
+          } finally {
+            setSaving(false);
+          }
+        },
+      });
+      return;
     }
+
+    setSaving(true);
+    const { error } = await supabase.from('categories').insert({ name, description, status });
+    if (error) { toast.error(t('common.createFailed')); setSaving(false); return; }
+    toast.success(t('categories.createSuccess'));
     setSaving(false);
     setDialogOpen(false);
     loadData();
@@ -89,21 +100,53 @@ export default function CategoriesPage() {
   const handleDeleteCheck = async (cat: Category) => {
     setDeleteTarget(cat);
     setDeleteInfo({ productCount: 0, loading: true });
-    const { count } = await supabase.from('products').select('*', { count: 'exact', head: true }).eq('category_id', cat.id).eq('is_deleted', false);
+    setReassignTarget('');
+    const { count, error } = await supabase.from('products').select('*', { count: 'exact', head: true }).eq('category_id', cat.id).eq('is_deleted', false);
+    if (error) {
+      toast.error(error.message);
+      setDeleteTarget(null);
+      setDeleteInfo(null);
+      return;
+    }
     setDeleteInfo({ productCount: count || 0, loading: false });
+    if (!count) {
+      setDeleteTarget(null);
+      setDeleteInfo(null);
+      await confirmDelete({
+        recordName: cat.name,
+        successMessage: t('categories.deleteSuccess'),
+        action: async () => {
+          const { error: deleteError } = await supabase.from('categories').delete().eq('id', cat.id);
+          if (deleteError) throw deleteError;
+          await loadData();
+        },
+      });
+    }
   };
 
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
-    if (deleteInfo && deleteInfo.productCount > 0 && reassignTarget) {
-      await supabase.from('products').update({ category_id: reassignTarget }).eq('category_id', deleteTarget.id);
-    }
-    await supabase.from('categories').delete().eq('id', deleteTarget.id);
-    toast.success(t('categories.deleteSuccess'));
+    const category = deleteTarget;
+    const productCount = deleteInfo?.productCount || 0;
     setDeleteTarget(null);
     setDeleteInfo(null);
-    setReassignTarget('');
-    loadData();
+    await confirmDelete({
+      recordName: category.name,
+      warning: productCount
+        ? `Delete “${category.name}”? ${productCount} products use this category${reassignTarget ? ` and will be reassigned to ${categories.find((item) => item.id === reassignTarget)?.name || 'the selected category'}` : ' and will become uncategorized'}.`
+        : `Are you sure you want to delete “${category.name}”? This action cannot be undone.`,
+      successMessage: t('categories.deleteSuccess'),
+      action: async () => {
+        if (productCount > 0 && reassignTarget) {
+          const { error: productError } = await supabase.from('products').update({ category_id: reassignTarget }).eq('category_id', category.id);
+          if (productError) throw productError;
+        }
+        const { error: deleteError } = await supabase.from('categories').delete().eq('id', category.id);
+        if (deleteError) throw deleteError;
+        setReassignTarget('');
+        await loadData();
+      },
+    });
   };
 
   const exportCSV = () => {
@@ -236,17 +279,17 @@ export default function CategoriesPage() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteInfo(null); setReassignTarget(''); } }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('categories.deleteConfirm')}</AlertDialogTitle>
-            <AlertDialogDescription>
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteInfo(null); setReassignTarget(''); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('categories.deleteConfirm')}</DialogTitle>
+            <p className="text-sm text-muted-foreground">
               {deleteInfo?.loading ? t('common.checking') :
                deleteInfo && deleteInfo.productCount > 0 ?
                 t('categories.deleteUsedWarning', { count: deleteInfo.productCount })
                 : t('common.irreversibleAction')}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
+            </p>
+          </DialogHeader>
           {deleteInfo && deleteInfo.productCount > 0 && (
             <div className="space-y-2 py-2">
               <Label>{t('categories.reassignProducts')} ({t('common.optional')})</Label>
@@ -256,12 +299,13 @@ export default function CategoriesPage() {
               </select>
             </div>
           )}
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteConfirm} className="bg-rose-600 hover:bg-rose-700">{t('common.delete')}</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setDeleteTarget(null); setDeleteInfo(null); setReassignTarget(''); }}>{t('common.cancel')}</Button>
+            <Button onClick={() => void handleDeleteConfirm()} disabled={deleteInfo?.loading}>Continue</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {confirmationDialog}
     </div>
   );
 }

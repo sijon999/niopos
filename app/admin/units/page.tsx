@@ -14,13 +14,11 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { supabase } from '@/lib/supabase';
 import type { Unit } from '@/types';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/use-translation';
+import { useConfirmation } from '@/hooks/use-confirmation';
 
 export default function UnitsPage() {
   const { t, locale } = useTranslation();
@@ -30,12 +28,12 @@ export default function UnitsPage() {
   const [search, setSearch] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Unit | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<Unit | null>(null);
   const [name, setName] = useState('');
   const [shortName, setShortName] = useState('');
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState('active');
   const [saving, setSaving] = useState(false);
+  const { confirmUpdate, confirmDelete, dialog: confirmationDialog } = useConfirmation();
 
   useEffect(() => { loadData(); }, []);
 
@@ -67,37 +65,56 @@ export default function UnitsPage() {
   const handleSave = async () => {
     if (!name.trim()) { toast.error(t('units.nameRequired')); return; }
     if (!shortName.trim()) { toast.error(t('units.shortNameRequired')); return; }
-    setSaving(true);
-
     const dup = units.find((u) => u.name.toLowerCase() === name.toLowerCase().trim() && u.id !== editing?.id);
-    if (dup) { toast.error(t('units.nameExists')); setSaving(false); return; }
+    if (dup) { toast.error(t('units.nameExists')); return; }
 
     if (editing) {
-      const { error } = await supabase.from('units').update({ name, short_name: shortName, description, status }).eq('id', editing.id);
-      if (error) { toast.error(t('common.updateFailed')); setSaving(false); return; }
-      toast.success(t('units.updateSuccess'));
-    } else {
-      const { error } = await supabase.from('units').insert({ name, short_name: shortName, description, status });
-      if (error) { toast.error(t('common.createFailed')); setSaving(false); return; }
-      toast.success(t('units.createSuccess'));
+      const unitId = editing.id;
+      await confirmUpdate({
+        successMessage: t('units.updateSuccess'),
+        action: async () => {
+          setSaving(true);
+          try {
+            const { error } = await supabase.from('units').update({ name, short_name: shortName, description, status }).eq('id', unitId);
+            if (error) throw error;
+            setDialogOpen(false);
+            await loadData();
+          } finally {
+            setSaving(false);
+          }
+        },
+      });
+      return;
     }
+
+    setSaving(true);
+    const { error } = await supabase.from('units').insert({ name, short_name: shortName, description, status });
+    if (error) { toast.error(t('common.createFailed')); setSaving(false); return; }
+    toast.success(t('units.createSuccess'));
     setSaving(false);
     setDialogOpen(false);
     loadData();
   };
 
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    const { data: products } = await supabase.from('products').select('id').eq('unit', deleteTarget.short_name).limit(1);
-    if (products && products.length > 0) {
-      toast.error(t('units.deleteUsedWarning'));
-      setDeleteTarget(null);
+  const handleDelete = async (unit: Unit) => {
+    const { data: products, error } = await supabase.from('products').select('id').eq('unit', unit.short_name).limit(1);
+    if (error) {
+      toast.error(error.message);
       return;
     }
-    await supabase.from('units').delete().eq('id', deleteTarget.id);
-    toast.success(t('units.deleteSuccess'));
-    setDeleteTarget(null);
-    loadData();
+    if (products && products.length > 0) {
+      toast.error(t('units.deleteUsedWarning'));
+      return;
+    }
+    await confirmDelete({
+      recordName: unit.name,
+      successMessage: t('units.deleteSuccess'),
+      action: async () => {
+        const { error: deleteError } = await supabase.from('units').delete().eq('id', unit.id);
+        if (deleteError) throw deleteError;
+        await loadData();
+      },
+    });
   };
 
   const exportCSV = () => {
@@ -186,7 +203,7 @@ export default function UnitsPage() {
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
                       <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(unit)}><Edit2 className="w-4 h-4" /></Button>
-                      <Button size="icon" variant="ghost" className="h-8 w-8 text-rose-600" onClick={() => setDeleteTarget(unit)}><Trash2 className="w-4 h-4" /></Button>
+                      <Button size="icon" variant="ghost" className="h-8 w-8 text-rose-600" onClick={() => void handleDelete(unit)}><Trash2 className="w-4 h-4" /></Button>
                     </div>
                   </TableCell>
                 </motion.tr>
@@ -227,18 +244,7 @@ export default function UnitsPage() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('units.deleteConfirm')}</AlertDialogTitle>
-            <AlertDialogDescription>{t('units.deleteUsedWarning')} {t('common.irreversibleAction')}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-rose-600 hover:bg-rose-700">{t('common.delete')}</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {confirmationDialog}
     </div>
   );
 }

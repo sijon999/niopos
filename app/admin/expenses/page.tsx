@@ -19,6 +19,7 @@ import { supabase } from '@/lib/supabase';
 import type { Expense, ExpenseCategory } from '@/types';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/use-translation';
+import { useConfirmation } from '@/hooks/use-confirmation';
 
 export default function ExpensesPage() {
   const { t, locale } = useTranslation();
@@ -28,6 +29,7 @@ export default function ExpensesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Expense | null>(null);
   const [form, setForm] = useState({ category_id: '', description: '', amount: '', date: new Date().toISOString().slice(0, 10) });
+  const { confirmUpdate, confirmDelete, dialog: confirmationDialog } = useConfirmation();
 
   useEffect(() => { loadData(); }, []);
 
@@ -50,8 +52,19 @@ export default function ExpensesPage() {
     if (!form.amount || !form.category_id) { toast.error(t('expenses.requiredFields')); return; }
     const payload = { category_id: form.category_id, description: form.description, amount: Number(form.amount), date: form.date };
     if (editing) {
-      await supabase.from('expenses').update(payload).eq('id', editing.id);
-      toast.success(t('expenses.updateSuccess'));
+      const expenseId = editing.id;
+      await confirmUpdate({
+        successMessage: t('expenses.updateSuccess'),
+        action: async () => {
+          const { error } = await supabase.from('expenses').update(payload).eq('id', expenseId);
+          if (error) throw error;
+          setDialogOpen(false);
+          setEditing(null);
+          setForm({ category_id: '', description: '', amount: '', date: new Date().toISOString().slice(0, 10) });
+          await loadData();
+        },
+      });
+      return;
     } else {
       await supabase.from('expenses').insert(payload);
       toast.success(t('expenses.createSuccess'));
@@ -61,9 +74,16 @@ export default function ExpensesPage() {
   };
 
   const handleDelete = async (id: string) => {
-    await supabase.from('expenses').delete().eq('id', id);
-    toast.success(t('expenses.deleteSuccess'));
-    loadData();
+    const expense = expenses.find((item) => item.id === id);
+    await confirmDelete({
+      recordName: expense?.description || expense?.date || id,
+      successMessage: t('expenses.deleteSuccess'),
+      action: async () => {
+        const { error } = await supabase.from('expenses').delete().eq('id', id);
+        if (error) throw error;
+        await loadData();
+      },
+    });
   };
 
   return (
@@ -158,6 +178,7 @@ export default function ExpensesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {confirmationDialog}
     </div>
   );
 }

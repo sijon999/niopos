@@ -19,6 +19,7 @@ import type { Employee } from '@/types';
 import { toast } from 'sonner';
 import EmployeeAccessPanel from './employee-access-panel';
 import { useTranslation } from '@/hooks/use-translation';
+import { useConfirmation } from '@/hooks/use-confirmation';
 
 const roleColors: Record<string, string> = {
   super_admin: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400',
@@ -35,6 +36,7 @@ export default function EmployeesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [form, setForm] = useState({ name: '', email: '', phone: '', role: 'cashier', salary: '' });
+  const { confirmUpdate, confirmDelete, dialog: confirmationDialog } = useConfirmation();
 
   useEffect(() => { loadData(); }, []);
 
@@ -48,8 +50,19 @@ export default function EmployeesPage() {
     if (!form.name) { toast.error(t('employees.nameRequired')); return; }
     const payload = { ...form, salary: Number(form.salary) || 0 };
     if (editing) {
-      await supabase.from('employees').update(payload).eq('id', editing.id);
-      toast.success(t('employees.updateSuccess'));
+      const employeeId = editing.id;
+      await confirmUpdate({
+        successMessage: t('employees.updateSuccess'),
+        action: async () => {
+          const { error } = await supabase.from('employees').update(payload).eq('id', employeeId);
+          if (error) throw error;
+          setDialogOpen(false);
+          setEditing(null);
+          setForm({ name: '', email: '', phone: '', role: 'cashier', salary: '' });
+          await loadData();
+        },
+      });
+      return;
     } else {
       await supabase.from('employees').insert({ ...payload, status: 'active' });
       toast.success(t('employees.createSuccess'));
@@ -59,9 +72,16 @@ export default function EmployeesPage() {
   };
 
   const handleDelete = async (id: string) => {
-    await supabase.from('employees').delete().eq('id', id);
-    toast.success(t('employees.deleteSuccess'));
-    loadData();
+    const employee = employees.find((item) => item.id === id);
+    await confirmDelete({
+      recordName: employee?.name || id,
+      successMessage: t('employees.deleteSuccess'),
+      action: async () => {
+        const { error } = await supabase.from('employees').delete().eq('id', id);
+        if (error) throw error;
+        await loadData();
+      },
+    });
   };
 
   return (
@@ -170,6 +190,7 @@ export default function EmployeesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {confirmationDialog}
     </div>
   );
 }

@@ -51,6 +51,7 @@ import { useAuth } from '@/components/providers';
 import { useTranslation } from '@/hooks/use-translation';
 import { toast } from 'sonner';
 import type { Product, StockReconciliation } from '@/types';
+import { useConfirmation } from '@/hooks/use-confirmation';
 
 type ReconciliationStatus = 'NOT_CHECKED' | 'CHECKED' | 'DIFFERENCE_FOUND';
 
@@ -74,6 +75,7 @@ const REASON_OPTIONS = [
 export default function StockReconciliationPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const { confirmAction, dialog: confirmationDialog } = useConfirmation();
 
   const [products, setProducts] = useState<ProductWithRecon[]>([]);
   const [loading, setLoading] = useState(true);
@@ -437,22 +439,24 @@ export default function StockReconciliationPage() {
     const recon = adjustmentProduct.latest_reconciliation;
     const currentStock = Number(adjustmentProduct.stock);
     const originalSystem = Number(recon.system_quantity);
+    const changedSinceVerification = currentStock !== originalSystem;
 
-    // Warn if stock changed since verification
-    if (currentStock !== originalSystem) {
-      const proceed = confirm(
-        t('reconciliation.stockChangedSinceVerification', {
+    await confirmAction({
+      title: 'Apply stock adjustment',
+      description: changedSinceVerification
+        ? `${t('reconciliation.stockChangedSinceVerification', {
           original: String(originalSystem),
           current: String(currentStock),
-        })
-      );
-      if (!proceed) return;
-    }
-
-    setAdjustmentSaving(true);
-    try {
-      const newQty = Number(recon.physical_quantity);
-      const diff = newQty - currentStock;
+        })} ${t('reconciliation.adjustmentApplied')}`
+        : `Set ${adjustmentProduct.name} stock to ${recon.physical_quantity}?`,
+      confirmLabel: 'Yes, Apply Adjustment',
+      destructive: true,
+      successMessage: t('reconciliation.adjustmentApplied'),
+      action: async () => {
+        setAdjustmentSaving(true);
+        try {
+          const newQty = Number(recon.physical_quantity);
+          const diff = newQty - currentStock;
 
       // Update product stock
       const { error: updateError } = await supabase
@@ -463,16 +467,17 @@ export default function StockReconciliationPage() {
       if (updateError) throw updateError;
 
       // Create stock movement record
-      await supabase.from('stock_movements').insert({
+      const { error: movementError } = await supabase.from('stock_movements').insert({
         product_id: adjustmentProduct.id,
         type: 'adjustment',
         quantity: Math.abs(diff),
         reference: `Reconciliation: ${recon.id}`,
         note: `Stock adjustment from reconciliation. Reason: ${recon.reason || 'N/A'}`,
       });
+          if (movementError) throw movementError;
 
       // Create stock adjustment record
-      await supabase.from('stock_adjustments').insert({
+      const { error: adjustmentError } = await supabase.from('stock_adjustments').insert({
         product_id: adjustmentProduct.id,
         reconciliation_id: recon.id,
         previous_quantity: currentStock,
@@ -482,9 +487,10 @@ export default function StockReconciliationPage() {
         reason_details: recon.reason_details,
         adjusted_by: (typeof user?.user_metadata?.full_name === 'string' && user.user_metadata.full_name) || user?.email || 'Unknown',
       });
+          if (adjustmentError) throw adjustmentError;
 
       // Mark reconciliation as adjusted
-      await supabase
+      const { error: reconciliationError } = await supabase
         .from('stock_reconciliations')
         .update({
           adjustment_applied: true,
@@ -492,15 +498,15 @@ export default function StockReconciliationPage() {
           adjustment_applied_by: (typeof user?.user_metadata?.full_name === 'string' && user.user_metadata.full_name) || user?.email || 'Unknown',
         })
         .eq('id', recon.id);
+          if (reconciliationError) throw reconciliationError;
 
-      toast.success(t('reconciliation.adjustmentApplied'));
       setAdjustmentProduct(null);
       await loadData();
-    } catch {
-      toast.error(t('reconciliation.verifyError'));
-    } finally {
-      setAdjustmentSaving(false);
-    }
+        } finally {
+          setAdjustmentSaving(false);
+        }
+      },
+    });
   };
 
   // Export CSV
@@ -1138,6 +1144,7 @@ export default function StockReconciliationPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {confirmationDialog}
     </div>
   );
 }

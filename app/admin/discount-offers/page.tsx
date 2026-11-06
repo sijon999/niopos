@@ -23,6 +23,7 @@ import { supabase } from '@/lib/supabase';
 import type { DiscountOffer } from '@/lib/discount';
 import type { Customer } from '@/types';
 import { toast } from 'sonner';
+import { useConfirmation } from '@/hooks/use-confirmation';
 
 type OfferUsage = {
   id: string;
@@ -66,6 +67,7 @@ export default function DiscountOffersPage() {
   const [detailOffer, setDetailOffer] = useState<DiscountOffer | null>(null);
   const [usageRecords, setUsageRecords] = useState<OfferUsage[]>([]);
   const [usageLoading, setUsageLoading] = useState(false);
+  const { confirmUpdate, confirmDelete, confirmAction, dialog: confirmationDialog } = useConfirmation();
 
   useEffect(() => { loadOffers(); loadCustomers(); }, []);
 
@@ -141,10 +143,7 @@ export default function DiscountOffersPage() {
     setDialogOpen(true);
   };
 
-  const handleSave = async () => {
-    if (!form.name || !form.discount_value) { toast.error('Name and discount value are required'); return; }
-    if (form.end_date < form.start_date) { toast.error('End date cannot be before start date'); return; }
-
+  const persistOffer = async () => {
     const payload: any = {
       name: form.name, description: form.description || null, code: form.code || null,
       discount_type: form.discount_type,
@@ -160,24 +159,28 @@ export default function DiscountOffersPage() {
 
     let offerId = editing?.id;
     if (editing) {
-      await supabase.from('discount_offers').update(payload).eq('id', editing.id);
-      toast.success('Offer updated');
+      const { error } = await supabase.from('discount_offers').update(payload).eq('id', editing.id);
+      if (error) throw error;
     } else {
-      const { data } = await supabase.from('discount_offers').insert(payload).select().single();
+      const { data, error } = await supabase.from('discount_offers').insert(payload).select().single();
+      if (error) throw error;
       if (data) offerId = data.id;
       toast.success('Offer created');
     }
 
     if (offerId && form.eligibility_type === 'selected') {
-      await supabase.from('customer_discount_offers').delete().eq('offer_id', offerId);
+      const { error: deleteError } = await supabase.from('customer_discount_offers').delete().eq('offer_id', offerId);
+      if (deleteError) throw deleteError;
       if (assignedCustomerIds.length > 0) {
         const assignments = assignedCustomerIds.map((cid) => ({
           customer_id: cid, offer_id: offerId, status: 'active',
         }));
-        await supabase.from('customer_discount_offers').insert(assignments);
+        const { error: assignmentError } = await supabase.from('customer_discount_offers').insert(assignments);
+        if (assignmentError) throw assignmentError;
       }
     } else if (offerId && editing && form.eligibility_type !== 'selected') {
-      await supabase.from('customer_discount_offers').delete().eq('offer_id', offerId);
+      const { error } = await supabase.from('customer_discount_offers').delete().eq('offer_id', offerId);
+      if (error) throw error;
     }
 
     setDialogOpen(false);
@@ -187,17 +190,42 @@ export default function DiscountOffersPage() {
     loadOffers();
   };
 
+  const handleSave = async () => {
+    if (!form.name || !form.discount_value) { toast.error('Name and discount value are required'); return; }
+    if (form.end_date < form.start_date) { toast.error('End date cannot be before start date'); return; }
+    if (editing) {
+      await confirmUpdate({ action: persistOffer, successMessage: 'Offer updated' });
+      return;
+    }
+    await persistOffer();
+  };
+
   const handleDelete = async (id: string) => {
-    await supabase.from('discount_offers').delete().eq('id', id);
-    toast.success('Offer deleted');
-    loadOffers();
+    const offer = offers.find((item) => item.id === id);
+    await confirmDelete({
+      recordName: offer?.name || id,
+      successMessage: 'Offer deleted',
+      action: async () => {
+        const { error } = await supabase.from('discount_offers').delete().eq('id', id);
+        if (error) throw error;
+        await loadOffers();
+      },
+    });
   };
 
   const toggleStatus = async (offer: DiscountOffer) => {
     const newStatus = offer.status === 'active' ? 'inactive' : 'active';
-    await supabase.from('discount_offers').update({ status: newStatus }).eq('id', offer.id);
-    toast.success(`Offer ${newStatus === 'active' ? 'activated' : 'deactivated'}`);
-    loadOffers();
+    await confirmAction({
+      title: `${newStatus === 'active' ? 'Activate' : 'Deactivate'} offer`,
+      description: `Are you sure you want to ${newStatus === 'active' ? 'activate' : 'deactivate'} “${offer.name}”?`,
+      confirmLabel: newStatus === 'active' ? 'Yes, Activate' : 'Yes, Deactivate',
+      successMessage: `Offer ${newStatus === 'active' ? 'activated' : 'deactivated'}`,
+      action: async () => {
+        const { error } = await supabase.from('discount_offers').update({ status: newStatus }).eq('id', offer.id);
+        if (error) throw error;
+        await loadOffers();
+      },
+    });
   };
 
   const viewDetail = async (offer: DiscountOffer) => {
@@ -484,6 +512,7 @@ export default function DiscountOffersPage() {
           <DialogFooter><Button variant="outline" onClick={() => setDetailOffer(null)}>Close</Button></DialogFooter>
         </DialogContent>
       </Dialog>
+      {confirmationDialog}
     </div>
   );
 }

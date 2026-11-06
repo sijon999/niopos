@@ -22,15 +22,13 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { supabase } from '@/lib/supabase';
 import type { Product, Category, Brand, Unit, ProductVariant } from '@/types';
 import { toast } from 'sonner';
 import { Barcode } from '@/components/barcode';
 import { ImportCSVDialog } from '@/components/import-csv-dialog';
 import { useTranslation } from '@/hooks/use-translation';
+import { useConfirmation } from '@/hooks/use-confirmation';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -91,8 +89,7 @@ export default function ProductsPage() {
   const [saving, setSaving] = useState(false);
   const [viewProduct, setViewProduct] = useState<Product | null>(null);
 
-  // Delete
-  const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
+  const { confirmUpdate, confirmDelete, dialog: confirmationDialog } = useConfirmation();
 
   // CSV Import
   const [importOpen, setImportOpen] = useState(false);
@@ -270,8 +267,6 @@ export default function ProductsPage() {
       if (dup) { toast.error(t('products.codeExistsFor', { name: dup.name })); return; }
     }
 
-    setSaving(true);
-
     const data: Record<string, any> = {
       name: formData.name,
       product_code: formData.product_code || null,
@@ -299,80 +294,93 @@ export default function ProductsPage() {
       status: formData.status,
     };
 
-    let productId = editingProduct?.id;
+    const persistProduct = async () => {
+      setSaving(true);
+      try {
+        let productId = editingProduct?.id;
+        if (editingProduct) {
+          const { error: updateError } = await supabase.from('products').update(data).eq('id', editingProduct.id);
+          if (updateError) throw updateError;
+        } else {
+          const { data: newProduct, error: insertError } = await supabase.from('products').insert(data).select().single();
+          if (insertError) throw insertError;
+          productId = newProduct.id;
+          if (Number(formData.stock) > 0) {
+            const { error: movementError } = await supabase.from('stock_movements').insert({
+              product_id: productId,
+              type: 'opening',
+              quantity: Number(formData.stock),
+              reference: 'Opening Stock',
+              note: 'Initial stock',
+            });
+            if (movementError) throw movementError;
+          }
+        }
+
+        if (productId && formData.product_type === 'variant') {
+          if (editingProduct) {
+            const existingIds = (editingProduct.product_variants || []).map((v) => v.id);
+            const keptIds = variants.filter((v) => v.id).map((v) => v.id);
+            const toDelete = existingIds.filter((id) => !keptIds.includes(id));
+            if (toDelete.length > 0) {
+              const { error: deleteError } = await supabase.from('product_variants').delete().in('id', toDelete);
+              if (deleteError) throw deleteError;
+            }
+          }
+
+          for (const v of variants) {
+            const variantData = {
+              product_id: productId,
+              variant_sku: v.variant_sku || null,
+              barcode: v.barcode || null,
+              size: v.size || null,
+              color: v.color || null,
+              material: v.material || null,
+              weight: v.weight || null,
+              design: v.design || null,
+              purchase_price: Number(v.purchase_price) || 0,
+              selling_price: Number(v.selling_price) || 0,
+              stock_quantity: Number(v.stock_quantity) || 0,
+              alert_limit: Number(v.alert_limit) || 0,
+              status: v.status,
+            };
+            const result = v.id
+              ? await supabase.from('product_variants').update(variantData).eq('id', v.id)
+              : await supabase.from('product_variants').insert(variantData);
+            if (result.error) throw result.error;
+          }
+        }
+
+        setDialogOpen(false);
+        await loadData();
+      } finally {
+        setSaving(false);
+      }
+    };
 
     if (editingProduct) {
-      const { error } = await supabase.from('products').update(data).eq('id', editingProduct.id);
-      if (error) { toast.error(t('common.updateFailed')); setSaving(false); return; }
-      toast.success(t('products.updateSuccess'));
+      await confirmUpdate({ action: persistProduct, successMessage: t('products.updateSuccess') });
     } else {
-      const { data: newProd, error } = await supabase.from('products').insert(data).select().single();
-      if (error) { toast.error(t('common.createFailed')); setSaving(false); return; }
-      productId = newProd.id;
-      toast.success(t('products.createSuccess'));
-
-      // Log stock movement for opening stock
-      if (Number(formData.stock) > 0) {
-        await supabase.from('stock_movements').insert({
-          product_id: productId,
-          type: 'opening',
-          quantity: Number(formData.stock),
-          reference: 'Opening Stock',
-          note: 'Initial stock',
-        });
+      try {
+        await persistProduct();
+        toast.success(t('products.createSuccess'));
+      } catch (saveError) {
+        toast.error(saveError instanceof Error ? saveError.message : t('common.createFailed'));
       }
     }
-
-    // Save variants
-    if (productId && formData.product_type === 'variant') {
-      // Delete removed variants
-      if (editingProduct) {
-        const existingIds = (editingProduct.product_variants || []).map((v) => v.id);
-        const keptIds = variants.filter((v) => v.id).map((v) => v.id);
-        const toDelete = existingIds.filter((id) => !keptIds.includes(id));
-        if (toDelete.length > 0) {
-          await supabase.from('product_variants').delete().in('id', toDelete);
-        }
-      }
-
-      // Upsert variants
-      for (const v of variants) {
-        const vData = {
-          product_id: productId,
-          variant_sku: v.variant_sku || null,
-          barcode: v.barcode || null,
-          size: v.size || null,
-          color: v.color || null,
-          material: v.material || null,
-          weight: v.weight || null,
-          design: v.design || null,
-          purchase_price: Number(v.purchase_price) || 0,
-          selling_price: Number(v.selling_price) || 0,
-          stock_quantity: Number(v.stock_quantity) || 0,
-          alert_limit: Number(v.alert_limit) || 0,
-          status: v.status,
-        };
-        if (v.id) {
-          await supabase.from('product_variants').update(vData).eq('id', v.id);
-        } else {
-          await supabase.from('product_variants').insert(vData);
-        }
-      }
-    }
-
-    setSaving(false);
-    setDialogOpen(false);
-    loadData();
   };
 
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    // Soft delete
-    const { error } = await supabase.from('products').update({ is_deleted: true, status: 'inactive' }).eq('id', deleteTarget.id);
-    if (error) { toast.error(t('products.deleteFailed')); return; }
-    toast.success(t('products.deleteSuccess'));
-    setDeleteTarget(null);
-    loadData();
+  const handleDelete = async (product: Product) => {
+    await confirmDelete({
+      recordName: product.name,
+      warning: t('products.deleteWarning'),
+      successMessage: t('products.deleteSuccess'),
+      action: async () => {
+        const { error } = await supabase.from('products').update({ is_deleted: true, status: 'inactive' }).eq('id', product.id);
+        if (error) throw error;
+        await loadData();
+      },
+    });
   };
 
   // Export functions
@@ -447,8 +455,19 @@ export default function ProductsPage() {
     const ids = Array.from(selectedIds);
 
     if (bulkAction === 'delete') {
-      await supabase.from('products').update({ is_deleted: true, status: 'inactive' }).in('id', ids);
-      toast.success(t('products.bulkDeleteSuccess', { count: ids.length }));
+      await confirmDelete({
+        recordName: `${ids.length} selected products`,
+        warning: 'These products will be archived and made inactive.',
+        successMessage: t('products.bulkDeleteSuccess', { count: ids.length }),
+        action: async () => {
+          const { error } = await supabase.from('products').update({ is_deleted: true, status: 'inactive' }).in('id', ids);
+          if (error) throw error;
+          setSelectedIds(new Set());
+          setBulkAction('');
+          await loadData();
+        },
+      });
+      return;
     } else if (bulkAction === 'export') {
       const selected = filtered.filter((p) => selectedIds.has(p.id));
       const headers = [t('common.name'), t('products.productCode'), t('products.sku'), t('products.barcode'), t('products.brand'), t('products.category'), t('common.quantity')];
@@ -464,7 +483,6 @@ export default function ProductsPage() {
 
     setSelectedIds(new Set());
     setBulkAction('');
-    loadData();
   };
 
   // Profit calculation
@@ -637,7 +655,7 @@ export default function ProductsPage() {
                           <div className="flex justify-end gap-1">
                             <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setViewProduct(product)} title={t('common.view')}><Eye className="w-4 h-4" /></Button>
                             <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(product)} title={t('common.edit')}><Edit2 className="w-4 h-4" /></Button>
-                            <Button size="icon" variant="ghost" className="h-8 w-8 text-rose-600" onClick={() => setDeleteTarget(product)} title={t('common.delete')}><Trash2 className="w-4 h-4" /></Button>
+                            <Button size="icon" variant="ghost" className="h-8 w-8 text-rose-600" onClick={() => void handleDelete(product)} title={t('common.delete')}><Trash2 className="w-4 h-4" /></Button>
                           </div>
                         </TableCell>
                       </motion.tr>
@@ -990,18 +1008,7 @@ export default function ProductsPage() {
       </Dialog>
 
       {/* Delete confirmation */}
-      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('products.deleteConfirm')}</AlertDialogTitle>
-            <AlertDialogDescription>{t('products.deleteWarning')}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-rose-600 hover:bg-rose-700">{t('common.delete')}</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {confirmationDialog}
 
       {/* Product details view */}
       <Dialog open={!!viewProduct} onOpenChange={(open) => !open && setViewProduct(null)}>

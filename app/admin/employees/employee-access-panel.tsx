@@ -9,6 +9,7 @@ import { useAuth } from '@/components/providers';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/use-translation';
+import { useConfirmation } from '@/hooks/use-confirmation';
 
 type TeamMember = {
   user_id: string;
@@ -39,6 +40,7 @@ export default function EmployeeAccessPanel() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [invitationLink, setInvitationLink] = useState('');
   const [inviting, setInviting] = useState(false);
+  const { confirmAction, dialog: confirmationDialog } = useConfirmation();
   const isOwner = profile?.role === 'admin' || profile?.role === 'store_owner';
 
   const loadTeam = useCallback(async () => {
@@ -107,38 +109,42 @@ export default function EmployeeAccessPanel() {
   };
 
   const updateMember = async (member: TeamMember, status: TeamMember['status']) => {
-    try {
-      const { error } = await supabase.rpc('manage_store_member', {
+    const shouldSuspend = status === 'suspended';
+    await confirmAction({
+      title: shouldSuspend ? t('employees.suspend') : t('employees.reactivate'),
+      description: `${shouldSuspend ? t('employees.suspend') : t('employees.reactivate')} ${member.full_name || member.email}?`,
+      confirmLabel: shouldSuspend ? t('employees.suspend') : t('employees.reactivate'),
+      destructive: shouldSuspend,
+      successMessage: status === 'approved' ? t('employees.memberReactivated') : t('employees.memberStatusUpdated'),
+      action: async () => {
+        const { error } = await supabase.rpc('manage_store_member', {
         target_user_id: member.user_id,
         target_status: status,
         target_role: 'cashier',
         target_permissions: ['pos'],
       });
-      if (error) {
-        toast.error(error.message);
-        return;
-      }
-      toast.success(status === 'approved' ? t('employees.memberReactivated') : t('employees.memberStatusUpdated'));
-      await loadTeam();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('employees.memberUpdateFailed'));
-    }
+        if (error) throw error;
+        await loadTeam();
+      },
+    });
   };
 
   const revokeInvitation = async (invitationId: string) => {
-    try {
-      const { error } = await supabase.rpc('revoke_store_invitation', {
-        target_invitation_id: invitationId,
-      });
-      if (error) {
-        toast.error(error.message);
-        return;
-      }
-      toast.success(t('employees.invitationRevoked'));
-      await loadTeam();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('employees.invitationRevokeFailed'));
-    }
+    const invitation = invitations.find((item) => item.invitation_id === invitationId);
+    await confirmAction({
+      title: t('employees.revoke'),
+      description: `Revoke the invitation for ${invitation?.email || invitationId}?`,
+      confirmLabel: t('employees.revoke'),
+      destructive: true,
+      successMessage: t('employees.invitationRevoked'),
+      action: async () => {
+        const { error } = await supabase.rpc('revoke_store_invitation', {
+          target_invitation_id: invitationId,
+        });
+        if (error) throw error;
+        await loadTeam();
+      },
+    });
   };
 
   if (profile?.role !== 'admin' && profile?.role !== 'store_owner') return null;
@@ -237,6 +243,7 @@ export default function EmployeeAccessPanel() {
           </div>
         ))}
       </section>
+      {confirmationDialog}
     </Card>
   );
 }

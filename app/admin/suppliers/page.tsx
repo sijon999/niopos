@@ -18,6 +18,7 @@ import { supabase } from '@/lib/supabase';
 import type { Supplier } from '@/types';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/use-translation';
+import { useConfirmation } from '@/hooks/use-confirmation';
 
 export default function SuppliersPage() {
   const { t, locale } = useTranslation();
@@ -27,6 +28,7 @@ export default function SuppliersPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Supplier | null>(null);
   const [form, setForm] = useState({ name: '', contact_person: '', email: '', phone: '', address: '', city: '', country: '' });
+  const { confirmUpdate, confirmDelete, dialog: confirmationDialog } = useConfirmation();
 
   useEffect(() => { loadData(); }, []);
 
@@ -41,8 +43,19 @@ export default function SuppliersPage() {
   const handleSave = async () => {
     if (!form.name) { toast.error(t('suppliers.nameRequired')); return; }
     if (editing) {
-      await supabase.from('suppliers').update(form).eq('id', editing.id);
-      toast.success(t('suppliers.updateSuccess'));
+      const supplierId = editing.id;
+      await confirmUpdate({
+        successMessage: t('suppliers.updateSuccess'),
+        action: async () => {
+          const { error } = await supabase.from('suppliers').update(form).eq('id', supplierId);
+          if (error) throw error;
+          setDialogOpen(false);
+          setEditing(null);
+          setForm({ name: '', contact_person: '', email: '', phone: '', address: '', city: '', country: '' });
+          await loadData();
+        },
+      });
+      return;
     } else {
       await supabase.from('suppliers').insert({ ...form, status: 'active', balance: 0 });
       toast.success(t('suppliers.createSuccess'));
@@ -52,9 +65,16 @@ export default function SuppliersPage() {
   };
 
   const handleDelete = async (id: string) => {
-    await supabase.from('suppliers').delete().eq('id', id);
-    toast.success(t('suppliers.deleteSuccess'));
-    loadData();
+    const supplier = suppliers.find((item) => item.id === id);
+    await confirmDelete({
+      recordName: supplier?.name || id,
+      successMessage: t('suppliers.deleteSuccess'),
+      action: async () => {
+        const { error } = await supabase.from('suppliers').delete().eq('id', id);
+        if (error) throw error;
+        await loadData();
+      },
+    });
   };
 
   return (
@@ -130,6 +150,7 @@ export default function SuppliersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {confirmationDialog}
     </div>
   );
 }

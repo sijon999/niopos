@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import type { AuthProfile } from '@/components/providers';
+import { useConfirmation } from '@/hooks/use-confirmation';
 
 type AccountStatus = AuthProfile['status'];
 type ActionStatus = Extract<AccountStatus, 'approved' | 'rejected' | 'suspended'>;
@@ -33,26 +34,30 @@ export function AccountStatusActions({
   onUpdated: () => void;
 }) {
   const [saving, setSaving] = useState(false);
+  const { confirmAction, dialog: confirmationDialog } = useConfirmation();
 
   const updateStatus = async (nextStatus: ActionStatus) => {
-    setSaving(true);
-    try {
-      const { error } = await supabase.rpc('set_store_owner_status', {
-        target_user_id: userId,
-        requested_status: nextStatus,
-      });
-      if (error) {
-        toast.error(error.message);
-        return;
-      }
-
-      toast.success(`Account ${nextStatus === 'approved' ? 'approved' : nextStatus}.`);
-      onUpdated();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to update account status.');
-    } finally {
-      setSaving(false);
-    }
+    const label = nextStatus === 'approved' ? 'Approve' : nextStatus === 'rejected' ? 'Reject' : 'Suspend';
+    await confirmAction({
+      title: `${label} account`,
+      description: `Are you sure you want to ${label.toLowerCase()} this account?`,
+      confirmLabel: `Yes, ${label}`,
+      destructive: nextStatus !== 'approved',
+      successMessage: `Account ${nextStatus === 'approved' ? 'approved' : nextStatus}.`,
+      action: async () => {
+        setSaving(true);
+        try {
+          const { error } = await supabase.rpc('set_store_owner_status', {
+            target_user_id: userId,
+            requested_status: nextStatus,
+          });
+          if (error) throw error;
+          onUpdated();
+        } finally {
+          setSaving(false);
+        }
+      },
+    });
   };
 
   return (
@@ -68,6 +73,7 @@ export function AccountStatusActions({
           {saving ? 'Saving...' : action.label}
         </Button>
       ))}
+      {confirmationDialog}
     </div>
   );
 }

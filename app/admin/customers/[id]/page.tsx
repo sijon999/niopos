@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
-  ArrowLeft, Gift, Phone, Mail, MapPin, Wallet,
+  ArrowLeft, Gift, Phone, Mail, MapPin,
   TrendingUp, Plus, CheckCircle2, Clock, Percent, Tag, Search, Filter,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
@@ -21,7 +21,12 @@ import { Label } from '@/components/ui/label';
 import { supabase } from '@/lib/supabase';
 import type { Customer } from '@/types';
 import type { DiscountOffer, DiscountOfferUsage } from '@/lib/discount';
+import {
+  CustomerProfileTransactions,
+  type CustomerFinancialSummary,
+} from '@/components/customer-profile-transactions';
 import { toast } from 'sonner';
+import { useConfirmation } from '@/hooks/use-confirmation';
 
 const today = new Date().toISOString().slice(0, 10);
 
@@ -48,6 +53,8 @@ type DiscountSummary = {
   discounted_products: number;
 };
 
+type CustomerProfileTab = 'overview' | 'purchase' | 'products' | 'dues' | 'payments' | 'returns' | 'discount';
+
 export default function CustomerProfilePage() {
   const params = useParams();
   const router = useRouter();
@@ -58,9 +65,21 @@ export default function CustomerProfilePage() {
   const [usedOffers, setUsedOffers] = useState<DiscountOfferUsage[]>([]);
   const [expiredOffers, setExpiredOffers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<CustomerProfileTab>('overview');
+  const [financialSummary, setFinancialSummary] = useState<CustomerFinancialSummary>({
+    totalOrders: 0,
+    totalPurchase: 0,
+    totalPaid: 0,
+    totalDue: 0,
+    totalReturned: 0,
+    totalRefunded: 0,
+    netPurchase: 0,
+    lastPurchase: null,
+  });
   const [assignOpen, setAssignOpen] = useState(false);
   const [allOffers, setAllOffers] = useState<DiscountOffer[]>([]);
   const [assignForm, setAssignForm] = useState({ offerId: '', expiresAt: '' });
+  const { confirmAction, dialog: confirmationDialog } = useConfirmation();
 
   const [discountSummary, setDiscountSummary] = useState<DiscountSummary>({ total_purchases: 0, total_discount: 0, discounted_orders: 0, discounted_products: 0 });
   const [discountHistory, setDiscountHistory] = useState<DiscountHistoryRow[]>([]);
@@ -77,7 +96,16 @@ export default function CustomerProfilePage() {
       supabase.rpc('get_customer_discount_history', { p_customer_id: customerId }),
     ]);
 
-    if (custRes.data) setCustomer(custRes.data as Customer);
+    if (custRes.error) {
+      toast.error(`Could not load customer profile: ${custRes.error.message}`);
+      setLoading(false);
+      return;
+    }
+    if (assignedRes.error || usageRes.error || allOffersRes.error || summaryRes.error || historyRes.error) {
+      const error = assignedRes.error || usageRes.error || allOffersRes.error || summaryRes.error || historyRes.error;
+      toast.error(`Could not load customer offers: ${error?.message}`);
+    }
+    setCustomer(custRes.data as Customer);
 
     const assigned = assignedRes.data || [];
     const available = assigned.filter((a: any) => {
@@ -127,23 +155,41 @@ export default function CustomerProfilePage() {
 
   const handleAssign = async () => {
     if (!assignForm.offerId) { toast.error('Select an offer to assign'); return; }
-    const { error } = await supabase.from('customer_discount_offers').upsert({
-      customer_id: customerId,
-      offer_id: assignForm.offerId,
-      status: 'active',
-      expires_at: assignForm.expiresAt || null,
-    }, { onConflict: 'customer_id,offer_id' });
-    if (error) {
-      toast.error('Could not assign offer');
-      return;
-    }
-    toast.success('Offer assigned to customer');
-    setAssignOpen(false);
-    setAssignForm({ offerId: '', expiresAt: '' });
-    loadData();
+    const selectedOffer = allOffers.find((offer) => offer.id === assignForm.offerId);
+    await confirmAction({
+      title: 'Assign discount offer',
+      description: `Assign ${selectedOffer?.name || 'this offer'} to ${customer?.name || 'this customer'}?`,
+      confirmLabel: 'Yes, Assign',
+      successMessage: 'Offer assigned to customer',
+      action: async () => {
+        const { error } = await supabase.from('customer_discount_offers').upsert({
+          customer_id: customerId,
+          offer_id: assignForm.offerId,
+          status: 'active',
+          expires_at: assignForm.expiresAt || null,
+        }, { onConflict: 'customer_id,offer_id' });
+        if (error) throw error;
+        setAssignOpen(false);
+        setAssignForm({ offerId: '', expiresAt: '' });
+        await loadData();
+      },
+    });
   };
 
   const fmtMoney = (n: number) => `৳${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const setSummary = useCallback((summary: CustomerFinancialSummary) => {
+    setFinancialSummary(summary);
+  }, []);
+
+  const profileTabs: Array<{ id: CustomerProfileTab; label: string }> = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'purchase', label: 'Purchase History' },
+    { id: 'products', label: 'Product History' },
+    { id: 'dues', label: 'Due Management' },
+    { id: 'payments', label: 'Payment History' },
+    { id: 'returns', label: 'Sales Return' },
+    { id: 'discount', label: 'Discount & Offers' },
+  ];
 
   if (loading) {
     return <div className="flex items-center justify-center h-64"><div className="text-muted-foreground">Loading customer profile...</div></div>;
@@ -163,8 +209,25 @@ export default function CustomerProfilePage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="p-5 space-y-3">
+      <div className="flex gap-2 overflow-x-auto border-b pb-2" role="tablist" aria-label="Customer profile sections">
+        {profileTabs.map((tab) => (
+          <Button
+            key={tab.id}
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            variant={activeTab === tab.id ? 'default' : 'ghost'}
+            size="sm"
+            className="shrink-0"
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </Button>
+        ))}
+      </div>
+
+      {activeTab === 'overview' && (
+        <div className="space-y-4">
+          <Card className="p-5 space-y-3">
           <div className="flex items-center gap-3">
             <div className="w-14 h-14 rounded-full bg-gradient-to-br from-slate-800 to-black flex items-center justify-center text-white text-xl font-bold">
               {customer.name.charAt(0).toUpperCase()}
@@ -181,38 +244,51 @@ export default function CustomerProfilePage() {
             {customer.address && <p className="flex items-center gap-2"><MapPin className="w-4 h-4 text-muted-foreground" />{customer.address}</p>}
           </div>
           <Separator />
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div><p className="text-xs text-muted-foreground">Total Purchase</p><p className="font-bold">{fmtMoney(Number(customer.total_buy || 0))}</p></div>
-            <div><p className="text-xs text-muted-foreground">Total Due</p><p className="font-bold text-amber-600">{fmtMoney(Number(customer.total_due || 0))}</p></div>
-            <div><p className="text-xs text-muted-foreground">Reward Points</p><p className="font-bold">{customer.reward_points}</p></div>
-            <div><p className="text-xs text-muted-foreground">Wallet</p><p className="font-bold">{fmtMoney(Number(customer.wallet_balance || 0))}</p></div>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div><p className="text-xs text-muted-foreground">Reward Points</p><p className="font-bold">{customer.reward_points}</p></div>
+              <div><p className="text-xs text-muted-foreground">Wallet</p><p className="font-bold">{fmtMoney(Number(customer.wallet_balance || 0))}</p></div>
+            </div>
+          </Card>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {[
+              ['Total Orders', String(financialSummary.totalOrders)],
+              ['Total Purchase', fmtMoney(financialSummary.totalPurchase)],
+              ['Total Paid', fmtMoney(financialSummary.totalPaid)],
+              ['Total Due', fmtMoney(financialSummary.totalDue)],
+              ['Total Returned', fmtMoney(financialSummary.totalReturned)],
+              ['Total Cash Refunded', fmtMoney(financialSummary.totalRefunded)],
+              ['Net Purchase', fmtMoney(financialSummary.netPurchase)],
+              ['Last Purchase', financialSummary.lastPurchase ? new Date(financialSummary.lastPurchase).toLocaleDateString() : '-'],
+            ].map(([label, value]) => (
+              <Card key={label} className="p-4">
+                <p className="text-xs text-muted-foreground">{label}</p>
+                <p className="mt-1 break-words font-bold">{value}</p>
+              </Card>
+            ))}
           </div>
-        </Card>
+        </div>
+      )}
 
-        {/* Discount summary cards */}
-        <Card className="p-5 lg:col-span-2">
-          <h3 className="font-semibold flex items-center gap-2 mb-4"><Percent className="w-5 h-5 text-amber-500" /> Discount Summary</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="rounded-lg border p-3 bg-muted/30">
-              <p className="text-xs text-muted-foreground">Total Purchases</p>
-              <p className="font-bold text-lg">{fmtMoney(discountSummary.total_purchases)}</p>
-            </div>
-            <div className="rounded-lg border p-3 bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800">
-              <p className="text-xs text-muted-foreground">Total Discount Received</p>
-              <p className="font-bold text-lg text-amber-600 dark:text-amber-400">{fmtMoney(discountSummary.total_discount)}</p>
-            </div>
-            <div className="rounded-lg border p-3 bg-muted/30">
-              <p className="text-xs text-muted-foreground">Discounted Orders</p>
-              <p className="font-bold text-lg">{discountSummary.discounted_orders}</p>
-            </div>
-            <div className="rounded-lg border p-3 bg-muted/30">
-              <p className="text-xs text-muted-foreground">Discounted Products</p>
-              <p className="font-bold text-lg">{discountSummary.discounted_products}</p>
-            </div>
-          </div>
-        </Card>
-      </div>
+      <CustomerProfileTransactions
+        customerId={customerId}
+        activeTab={activeTab}
+        onSummary={setSummary}
+        onRefreshCustomer={loadData}
+      />
 
+      {activeTab === 'discount' && (
+        <div className="space-y-4">
+      <Card className="p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold flex items-center gap-2"><Percent className="w-5 h-5 text-amber-500" /> Discount Summary</h3>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="rounded-lg border p-3 bg-muted/30"><p className="text-xs text-muted-foreground">Total Purchases</p><p className="font-bold text-lg">{fmtMoney(discountSummary.total_purchases)}</p></div>
+          <div className="rounded-lg border p-3 bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800"><p className="text-xs text-muted-foreground">Total Discount Received</p><p className="font-bold text-lg text-amber-600 dark:text-amber-400">{fmtMoney(discountSummary.total_discount)}</p></div>
+          <div className="rounded-lg border p-3 bg-muted/30"><p className="text-xs text-muted-foreground">Discounted Orders</p><p className="font-bold text-lg">{discountSummary.discounted_orders}</p></div>
+          <div className="rounded-lg border p-3 bg-muted/30"><p className="text-xs text-muted-foreground">Discounted Products</p><p className="font-bold text-lg">{discountSummary.discounted_products}</p></div>
+        </div>
+      </Card>
       <Card className="p-5 space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="font-semibold flex items-center gap-2"><Gift className="w-5 h-5 text-amber-500" /> Discount Offers</h3>
@@ -384,6 +460,9 @@ export default function CustomerProfilePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {confirmationDialog}
+        </div>
+      )}
     </div>
   );
 }

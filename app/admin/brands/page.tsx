@@ -15,13 +15,11 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { supabase } from '@/lib/supabase';
 import type { Brand } from '@/types';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/use-translation';
+import { useConfirmation } from '@/hooks/use-confirmation';
 
 const PAGE_SIZE = 10;
 
@@ -40,8 +38,7 @@ export default function BrandsPage() {
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<Brand | null>(null);
-  const [deleteInfo, setDeleteInfo] = useState<{ productCount: number; loading: boolean } | null>(null);
+  const { confirmUpdate, confirmDelete, dialog: confirmationDialog } = useConfirmation();
 
   useEffect(() => { loadData(); }, []);
 
@@ -95,43 +92,56 @@ export default function BrandsPage() {
 
   const handleSave = async () => {
     if (!name.trim()) { toast.error(t('brands.nameRequired')); return; }
-    setSaving(true);
-
     const dup = brands.find((b) => b.name.toLowerCase() === name.toLowerCase().trim() && b.id !== editing?.id);
-    if (dup) { toast.error(t('brands.nameExists')); setSaving(false); return; }
+    if (dup) { toast.error(t('brands.nameExists')); return; }
 
     if (editing) {
-      const { error } = await supabase.from('brands').update({ name, description, status, logo_url: logoUrl }).eq('id', editing.id);
-      if (error) { toast.error(t('common.updateFailed')); setSaving(false); return; }
-      toast.success(t('brands.updateSuccess'));
-    } else {
-      const { error } = await supabase.from('brands').insert({ name, description, status, logo_url: logoUrl });
-      if (error) { toast.error(t('common.createFailed')); setSaving(false); return; }
-      toast.success(t('brands.createSuccess'));
+      const brandId = editing.id;
+      await confirmUpdate({
+        successMessage: t('brands.updateSuccess'),
+        action: async () => {
+          setSaving(true);
+          try {
+            const { error } = await supabase.from('brands').update({ name, description, status, logo_url: logoUrl }).eq('id', brandId);
+            if (error) throw error;
+            setDialogOpen(false);
+            await loadData();
+          } finally {
+            setSaving(false);
+          }
+        },
+      });
+      return;
     }
+
+    setSaving(true);
+    const { error } = await supabase.from('brands').insert({ name, description, status, logo_url: logoUrl });
+    if (error) { toast.error(t('common.createFailed')); setSaving(false); return; }
+    toast.success(t('brands.createSuccess'));
     setSaving(false);
     setDialogOpen(false);
     loadData();
   };
 
   const handleDeleteCheck = async (brand: Brand) => {
-    setDeleteTarget(brand);
-    setDeleteInfo({ productCount: 0, loading: true });
-    const { count } = await supabase.from('products').select('*', { count: 'exact', head: true }).eq('brand_id', brand.id).eq('is_deleted', false);
-    setDeleteInfo({ productCount: count || 0, loading: false });
-  };
-
-  const handleDeleteConfirm = async () => {
-    if (!deleteTarget) return;
-    if (deleteInfo && deleteInfo.productCount > 0) {
-      toast.error(t('brands.deleteUsedWarning', { count: deleteInfo.productCount }));
+    const { count, error } = await supabase.from('products').select('*', { count: 'exact', head: true }).eq('brand_id', brand.id).eq('is_deleted', false);
+    if (error) {
+      toast.error(error.message);
       return;
     }
-    await supabase.from('brands').delete().eq('id', deleteTarget.id);
-    toast.success(t('brands.deleteSuccess'));
-    setDeleteTarget(null);
-    setDeleteInfo(null);
-    loadData();
+    if (count && count > 0) {
+      toast.error(t('brands.deleteUsedWarning', { count }));
+      return;
+    }
+    await confirmDelete({
+      recordName: brand.name,
+      successMessage: t('brands.deleteSuccess'),
+      action: async () => {
+        const { error: deleteError } = await supabase.from('brands').delete().eq('id', brand.id);
+        if (deleteError) throw deleteError;
+        await loadData();
+      },
+    });
   };
 
   const exportCSV = () => {
@@ -297,23 +307,7 @@ export default function BrandsPage() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteInfo(null); } }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('brands.deleteConfirm')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {deleteInfo?.loading ? t('common.checking') :
-               deleteInfo && deleteInfo.productCount > 0 ?
-                t('brands.deleteUsedWarning', { count: deleteInfo.productCount })
-                : t('common.irreversibleAction')}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteConfirm} className="bg-rose-600 hover:bg-rose-700">{t('common.delete')}</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {confirmationDialog}
     </div>
   );
 }

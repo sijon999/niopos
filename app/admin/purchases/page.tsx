@@ -27,6 +27,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import type { Purchase, PurchaseItem, Product, Supplier } from '@/types';
 import { toast } from 'sonner';
+import { useConfirmation } from '@/hooks/use-confirmation';
 
 type CartEntry = {
   product_id: string;
@@ -112,6 +113,7 @@ export default function PurchasesPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [filterOpen, setFilterOpen] = useState(false);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const { confirmAction, dialog: confirmationDialog } = useConfirmation();
 
   const loadPurchases = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -241,17 +243,24 @@ export default function PurchasesPage() {
   };
 
   const handleCancel = async (purchase: Purchase) => {
-    setCancellingId(purchase.id);
-    const { error } = await supabase.rpc('cancel_purchase_order', { p_purchase_id: purchase.id });
-    if (error) {
-      toast.error('Failed to cancel purchase');
-      setCancellingId(null);
-      return;
-    }
-    toast.success('Purchase cancelled and stock adjusted');
-    setDetailPurchase(null);
-    setCancellingId(null);
-    loadPurchases();
+    await confirmAction({
+      title: 'Cancel purchase',
+      description: `Cancel purchase ${purchase.po_number || purchase.id}? This will reverse the purchase using the existing stock adjustment workflow.`,
+      confirmLabel: 'Yes, Cancel Purchase',
+      destructive: true,
+      successMessage: 'Purchase cancelled and stock adjusted',
+      action: async () => {
+        setCancellingId(purchase.id);
+        try {
+          const { error } = await supabase.rpc('cancel_purchase_order', { p_purchase_id: purchase.id });
+          if (error) throw error;
+          setDetailPurchase(null);
+          await loadPurchases();
+        } finally {
+          setCancellingId(null);
+        }
+      },
+    });
   };
 
   const handlePresetChange = (preset: DatePreset): void => {
@@ -337,6 +346,7 @@ export default function PurchasesPage() {
             </Button>
           </div>
         )}
+        {confirmationDialog}
       </div>
     );
   }
@@ -592,6 +602,7 @@ export default function PurchasesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {confirmationDialog}
     </div>
   );
 }

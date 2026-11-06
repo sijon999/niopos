@@ -430,6 +430,19 @@ export default function AdminLayout({
                   {t('common.signedIn')}
                 </Badge>
               )}
+              {hasPermission('pos') && (
+                <Button
+                  asChild
+                  size="sm"
+                  variant={pathname === '/admin/pos' ? 'default' : 'outline'}
+                  className="gap-2"
+                >
+                  <Link href="/admin/pos">
+                    <ShoppingCart className="h-4 w-4" />
+                    POS
+                  </Link>
+                </Button>
+              )}
             </div>
 
             <div className="flex items-center gap-2 sm:gap-3">

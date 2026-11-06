@@ -19,6 +19,7 @@ import { supabase } from '@/lib/supabase';
 import type { Customer } from '@/types';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/use-translation';
+import { useConfirmation } from '@/hooks/use-confirmation';
 
 export default function CustomersPage() {
   const { t, locale } = useTranslation();
@@ -28,6 +29,9 @@ export default function CustomersPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
   const [form, setForm] = useState({ name: '', email: '', phone: '', address: '', membership: 'regular' });
+  const { confirmUpdate, confirmDelete, dialog: confirmationDialog } = useConfirmation();
+
+  const normalizePhone = (phone: string) => phone.replace(/[^0-9]/g, '');
 
   useEffect(() => { loadData(); }, []);
 
@@ -41,11 +45,65 @@ export default function CustomersPage() {
 
   const handleSave = async () => {
     if (!form.name) { toast.error(t('customers.nameRequired')); return; }
+    const { data: storeId, error: storeError } = await supabase.rpc('get_my_store_id');
+    if (storeError || !storeId) {
+      console.error('Could not determine the current store for customer validation', storeError);
+      toast.error('Could not verify this customer for the current store. Please try again.');
+      return;
+    }
+
+    const normalizedPhone = normalizePhone(form.phone);
+    if (normalizedPhone) {
+      let duplicateQuery = supabase
+        .from('customers')
+        .select('id')
+        .eq('store_id', storeId)
+        .eq('phone_normalized', normalizedPhone);
+      if (editing) duplicateQuery = duplicateQuery.neq('id', editing.id);
+
+      const { data: duplicate, error: duplicateError } = await duplicateQuery.maybeSingle();
+      if (duplicateError) {
+        console.error('Could not check for duplicate customer mobile number', duplicateError);
+        toast.error('Could not verify this mobile number. Please try again.');
+        return;
+      }
+      if (duplicate) {
+        toast.error('This mobile number is already registered with another customer.');
+        return;
+      }
+    }
+
     if (editing) {
-      await supabase.from('customers').update(form).eq('id', editing.id);
-      toast.success(t('customers.updateSuccess'));
+      const customerIdToUpdate = editing.id;
+      await confirmUpdate({
+        successMessage: t('customers.updateSuccess'),
+        action: async () => {
+          const { error } = await supabase.from('customers').update(form).eq('id', customerIdToUpdate).eq('store_id', storeId);
+          if (error) {
+            if (error.code === '23505' && error.message.includes('customers_store_phone_normalized_uidx')) {
+              throw new Error('This mobile number is already registered with another customer.');
+            }
+            console.error('Could not update customer', error);
+            throw new Error('Could not update customer. Please try again.');
+          }
+          setDialogOpen(false);
+          setEditing(null);
+          setForm({ name: '', email: '', phone: '', address: '', membership: 'regular' });
+          await loadData();
+        },
+      });
+      return;
     } else {
-      await supabase.from('customers').insert({ ...form, status: 'active', reward_points: 0, wallet_balance: 0 });
+      const { error } = await supabase.from('customers').insert({ ...form, store_id: storeId, status: 'active', reward_points: 0, wallet_balance: 0 });
+      if (error) {
+        if (error.code === '23505' && error.message.includes('customers_store_phone_normalized_uidx')) {
+          toast.error('This mobile number is already registered with another customer.');
+        } else {
+          console.error('Could not create customer', error);
+          toast.error('Could not create customer. Please try again.');
+        }
+        return;
+      }
       toast.success(t('customers.createSuccess'));
     }
     setDialogOpen(false); setEditing(null); setForm({ name: '', email: '', phone: '', address: '', membership: 'regular' });
@@ -53,9 +111,16 @@ export default function CustomersPage() {
   };
 
   const handleDelete = async (id: string) => {
-    await supabase.from('customers').delete().eq('id', id);
-    toast.success(t('customers.deleteSuccess'));
-    loadData();
+    const customer = customers.find((item) => item.id === id);
+    await confirmDelete({
+      recordName: customer?.name || id,
+      successMessage: t('customers.deleteSuccess'),
+      action: async () => {
+        const { error } = await supabase.from('customers').delete().eq('id', id);
+        if (error) throw error;
+        await loadData();
+      },
+    });
   };
 
   const membershipColors: Record<string, string> = {
@@ -175,6 +240,7 @@ export default function CustomersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {confirmationDialog}
     </div>
   );
 }

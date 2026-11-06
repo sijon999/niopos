@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabase';
 import type { Settings } from '@/types';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/use-translation';
+import { useConfirmation } from '@/hooks/use-confirmation';
 
 export default function SettingsPage() {
   const { t } = useTranslation();
@@ -18,6 +19,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const { confirmUpdate, dialog: confirmationDialog } = useConfirmation();
 
   useEffect(() => {
     let current = true;
@@ -49,8 +51,11 @@ export default function SettingsPage() {
 
   const handleSave = async () => {
     if (!settings) return;
-    setSaving(true);
-    try {
+    await confirmUpdate({
+      successMessage: t('settings.settingsSaved'),
+      action: async () => {
+        setSaving(true);
+        try {
       const { error } = await supabase.from('settings').update({
         store_name: settings.store_name,
         store_email: settings.store_email,
@@ -64,16 +69,12 @@ export default function SettingsPage() {
         trade_license_no: settings.trade_license_no?.trim() || null,
         tax_no: settings.tax_no?.trim() || null,
       }).eq('id', settings.id);
-      if (error) {
-        toast.error(`${t('settings.saveFailed')}: ${error.message}`);
-        return;
-      }
-      toast.success(t('settings.settingsSaved'));
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('settings.saveFailed'));
-    } finally {
-      setSaving(false);
-    }
+          if (error) throw error;
+        } finally {
+          setSaving(false);
+        }
+      },
+    });
   };
 
   if (loading) {
@@ -155,6 +156,7 @@ export default function SettingsPage() {
           {saving ? t('common.saving') : t('settings.saveSettings')}
         </Button>
       </div>
+      {confirmationDialog}
     </div>
   );
 }

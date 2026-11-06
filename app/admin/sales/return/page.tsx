@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { ReturnThermalReceipt, type ReturnReceiptData } from '@/components/return-thermal-receipt';
 import type { ReceiptSettings } from '@/components/thermal-receipt';
 import { useTranslation } from '@/hooks/use-translation';
+import { useConfirmation } from '@/hooks/use-confirmation';
 import { supabase } from '@/lib/supabase';
 import type { Sale, SaleItem } from '@/types';
 
@@ -40,7 +41,6 @@ type ReturnPreview = {
   refund: number;
 };
 
-const paymentMethods = ['cash', 'card', 'mobile', 'bank', 'store_credit', 'due_adjustment'] as const;
 const returnReasons = ['changed_mind', 'wrong_item', 'damaged', 'quality_issue', 'other'] as const;
 
 const money = (value: number, currency: string): string =>
@@ -107,13 +107,15 @@ export default function SalesReturnPage() {
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [conditions, setConditions] = useState<Record<string, 'good' | 'damaged'>>({});
-  const [refundMethod, setRefundMethod] = useState<(typeof paymentMethods)[number]>('cash');
+  const [refundMethod] = useState<'cash'>('cash');
+  const { confirmAction, dialog: confirmationDialog } = useConfirmation();
   const [priorReturns, setPriorReturns] = useState<PriorReturn[]>([]);
   const [receipt, setReceipt] = useState<ReturnReceiptData | null>(null);
   const [receiptSettings, setReceiptSettings] = useState<ReceiptSettings | null>(null);
   const [printRequested, setPrintRequested] = useState(false);
   const [printPortalReady, setPrintPortalReady] = useState(false);
   const requestKey = useRef<string | null>(null);
+  const initialInvoiceLoaded = useRef(false);
 
   useEffect(() => setPrintPortalReady(true), []);
 
@@ -187,6 +189,16 @@ export default function SalesReturnPage() {
     setLoading(false);
   }, [t]);
 
+  useEffect(() => {
+    if (initialInvoiceLoaded.current) return;
+    initialInvoiceLoaded.current = true;
+    const invoice = new URLSearchParams(window.location.search).get('invoice');
+    if (invoice) {
+      setInvoiceNumber(invoice);
+      void loadSale(invoice);
+    }
+  }, [loadSale]);
+
   const returnedQuantities = useMemo(() => {
     const exact = new Map<string, number>();
     const legacy = new Map<string, number>();
@@ -258,96 +270,92 @@ export default function SalesReturnPage() {
       return;
     }
 
-    setProcessing(true);
-    requestKey.current ||= crypto.randomUUID();
-    const { data, error } = await supabase.rpc('complete_sale_return', {
-      p_sale_id: sale.id,
-      p_items: selectedItems,
-      p_refund_method: refundMethod,
-      p_idempotency_key: requestKey.current,
+    await confirmAction({
+      title: 'Confirm Sales Return',
+      description: `Return the selected products from ${sale.invoice_number} for ${money(preview?.total || 0, currency)}? Refunds are cash-only; unpaid value is applied to the invoice balance.`,
+      confirmLabel: t('salesReturns.processReturn'),
+      destructive: true,
+      successMessage: t('salesReturns.returnCompleted'),
+      action: async () => {
+        setProcessing(true);
+        try {
+          requestKey.current ||= crypto.randomUUID();
+          const { data, error } = await supabase.rpc('complete_sale_return', {
+            p_sale_id: sale.id,
+            p_items: selectedItems,
+            p_refund_method: refundMethod,
+            p_idempotency_key: requestKey.current,
+          });
+          if (error) throw new Error(errorText(error.message));
+          if (!data) throw new Error(t('salesReturns.processFailed'));
+
+          const result = data as { id?: string; invoice_number?: string };
+          if (!result.id || !sale.store_id) throw new Error(t('salesReturns.processFailed'));
+          requestKey.current = null;
+
+          const [{ data: savedReturn, error: savedReturnError }, { data: settings, error: settingsError }] =
+            await Promise.all([
+              supabase.from('sale_returns').select('*, sale_return_items(*)').eq('id', result.id).single(),
+              supabase
+                .from('settings')
+                .select('store_name, store_address, store_phone, store_email, currency_symbol, tax_rate, receipt_footer, domain, trade_license_no, tax_no')
+                .eq('store_id', sale.store_id)
+                .maybeSingle(),
+            ]);
+
+          if (savedReturnError || settingsError || !savedReturn || !settings) {
+            toast.error(t('salesReturns.settingsMissing'));
+          } else {
+            const customer = sale.customers;
+            const items = (savedReturn.sale_return_items || []).map((item: {
+              id: string;
+              product_name: string;
+              quantity: number;
+              price: number;
+              discount: number;
+              tax: number;
+              total: number;
+              condition: string;
+              reason: string | null;
+            }) => ({
+              id: item.id,
+              product_name: item.product_name,
+              quantity: Number(item.quantity),
+              price: Number(item.price),
+              discount: Number(item.discount),
+              tax: Number(item.tax),
+              total: Number(item.total),
+              condition: item.condition,
+              reason: item.reason,
+            }));
+            setReceipt({
+              id: savedReturn.id,
+              invoice_number: savedReturn.invoice_number,
+              original_invoice_number: sale.invoice_number,
+              customer_name: sale.customer_name_snapshot || customer?.name || t('salesReturns.walkInCustomer'),
+              customer_phone: sale.customer_phone_snapshot || customer?.phone || null,
+              customer_address: sale.customer_address_snapshot || customer?.address || null,
+              return_date: savedReturn.return_date,
+              subtotal: Number(savedReturn.subtotal),
+              discount: Number(savedReturn.discount),
+              tax: Number(savedReturn.tax),
+              total: Number(savedReturn.total),
+              refund_method: savedReturn.refund_method,
+              refund_amount: Number(savedReturn.refund_amount),
+              due_adjustment: Number(savedReturn.due_adjustment || 0),
+              processed_by_name: savedReturn.processed_by_name,
+              items,
+            });
+            setReceiptSettings(settings as ReceiptSettings);
+            setPrintRequested(true);
+          }
+
+          await loadSale(sale.invoice_number);
+        } finally {
+          setProcessing(false);
+        }
+      },
     });
-
-    if (error || !data) {
-      toast.error(error ? errorText(error.message) : t('salesReturns.processFailed'));
-      setProcessing(false);
-      return;
-    }
-
-    const result = data as {
-      id?: string;
-      invoice_number?: string;
-    };
-    if (!result.id || !sale.store_id) {
-      toast.error(t('salesReturns.processFailed'));
-      setProcessing(false);
-      return;
-    }
-    requestKey.current = null;
-
-    const [{ data: savedReturn, error: savedReturnError }, { data: settings, error: settingsError }] =
-      await Promise.all([
-        supabase
-          .from('sale_returns')
-          .select('*, sale_return_items(*)')
-          .eq('id', result.id)
-          .single(),
-        supabase
-          .from('settings')
-          .select('store_name, store_address, store_phone, store_email, currency_symbol, tax_rate, receipt_footer, domain, trade_license_no, tax_no')
-          .eq('store_id', sale.store_id)
-          .maybeSingle(),
-      ]);
-
-    toast.success(t('salesReturns.returnCompleted'));
-    if (savedReturnError || settingsError || !savedReturn || !settings) {
-      toast.error(t('salesReturns.settingsMissing'));
-    } else {
-      const customer = sale.customers;
-      const items = (savedReturn.sale_return_items || []).map((item: {
-        id: string;
-        product_name: string;
-        quantity: number;
-        price: number;
-        discount: number;
-        tax: number;
-        total: number;
-        condition: string;
-        reason: string | null;
-      }) => ({
-        id: item.id,
-        product_name: item.product_name,
-        quantity: Number(item.quantity),
-        price: Number(item.price),
-        discount: Number(item.discount),
-        tax: Number(item.tax),
-        total: Number(item.total),
-        condition: item.condition,
-        reason: item.reason,
-      }));
-      setReceipt({
-        id: savedReturn.id,
-        invoice_number: savedReturn.invoice_number,
-        original_invoice_number: sale.invoice_number,
-        customer_name: sale.customer_name_snapshot || customer?.name || t('salesReturns.walkInCustomer'),
-        customer_phone: sale.customer_phone_snapshot || customer?.phone || null,
-        customer_address: sale.customer_address_snapshot || customer?.address || null,
-        return_date: savedReturn.return_date,
-        subtotal: Number(savedReturn.subtotal),
-        discount: Number(savedReturn.discount),
-        tax: Number(savedReturn.tax),
-        total: Number(savedReturn.total),
-        refund_method: savedReturn.refund_method,
-        refund_amount: Number(savedReturn.refund_amount),
-        due_adjustment: Number(savedReturn.due_adjustment || 0),
-        processed_by_name: savedReturn.processed_by_name,
-        items,
-      });
-      setReceiptSettings(settings as ReceiptSettings);
-      setPrintRequested(true);
-    }
-
-    await loadSale(sale.invoice_number);
-    setProcessing(false);
   };
 
   useEffect(() => {
@@ -515,29 +523,11 @@ export default function SalesReturnPage() {
           {preview && (
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
               <Card className="p-4 sm:p-5">
-                <label className="text-sm font-medium" htmlFor="refund-method">
-                  {t('salesReturns.refundMethod')}
-                </label>
-                <select
-                  id="refund-method"
-                  className="mt-2 h-10 w-full rounded-md border bg-background px-3"
-                  value={refundMethod}
-                  onChange={(event) => setRefundMethod(event.target.value as (typeof paymentMethods)[number])}
-                >
-                  {paymentMethods.map((method) => (
-                    <option key={method} value={method}>{t(`salesReturns.methods.${method}`)}</option>
-                  ))}
-                </select>
-                {refundMethod === 'store_credit' && !sale.customer_id && (
-                  <p className="mt-2 text-sm text-destructive">
-                    {t('salesReturns.errors.return_store_credit_customer')}
-                  </p>
-                )}
-                {refundMethod === 'due_adjustment' && preview && preview.total > outstandingDue && (
-                  <p className="mt-2 text-sm text-destructive">
-                    {t('salesReturns.errors.return_due_exceeded')}
-                  </p>
-                )}
+                <p className="text-sm font-medium">{t('salesReturns.refundMethod')}</p>
+                <Badge className="mt-2">{t('salesReturns.methods.cash')}</Badge>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Cash refunds are limited to the amount already paid; any unpaid returned value reduces the invoice balance.
+                </p>
               </Card>
 
               <Card className="space-y-3 p-4 sm:p-5">
@@ -552,12 +542,7 @@ export default function SalesReturnPage() {
                 <Button
                   className="w-full"
                   onClick={() => void handleProcessReturn()}
-                  disabled={
-                    processing ||
-                    preview.total <= 0 ||
-                    (refundMethod === 'store_credit' && !sale.customer_id) ||
-                    (refundMethod === 'due_adjustment' && preview.total > outstandingDue)
-                  }
+                  disabled={processing || preview.total <= 0}
                 >
                   {processing
                     ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
@@ -576,6 +561,8 @@ export default function SalesReturnPage() {
           {t('salesReturns.printReceipt')}
         </Button>
       )}
+
+      {confirmationDialog}
 
       {printPortalReady && receipt && receiptSettings && createPortal(
         <ReturnThermalReceipt receipt={receipt} settings={receiptSettings} />,

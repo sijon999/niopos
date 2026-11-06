@@ -58,6 +58,7 @@ import { ThermalReceipt } from '@/components/thermal-receipt';
 import { fetchEligibleOffers, calculateOfferDiscount, formatOfferLabel, checkMinimumPurchase, type EligibleOffer } from '@/lib/discount';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/use-translation';
+import { useConfirmation } from '@/hooks/use-confirmation';
 
 const paymentMethods = [
   { id: 'cash', icon: Banknote },
@@ -69,6 +70,7 @@ const paymentMethods = [
 
 export default function POSPage() {
   const { t, locale } = useTranslation();
+  const { confirmAction, dialog: confirmationDialog } = useConfirmation();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -287,21 +289,29 @@ export default function POSPage() {
   };
 
   const retrieveHeldOrder = async (order: any) => {
-    const od = order.order_data;
-    if (od.cart) {
-      for (const item of od.cart) {
-        addToCart({ ...item, id: item.product_id, selling_price: item.price, cost_price: 0, stock: item.stock } as Product);
-      }
-    }
-    if (od.customer) setCustomer(od.customer);
-    if (typeof od.discount === 'number') setDiscount(od.discount);
-    if (od.paymentMethod) setPaymentMethod(od.paymentMethod);
-    if (typeof od.paidAmount === 'number') setPaidAmount(od.paidAmount);
-    if (typeof od.offerId === 'string') setSelectedOfferId(od.offerId);
-    await supabase.from('held_orders').update({ status: 'retrieved' }).eq('id', order.id);
-    setHeldOrders(heldOrders.filter((h) => h.id !== order.id));
-    setHeldOrdersOpen(false);
-    toast.success(t('pos.orderRetrieved'));
+    await confirmAction({
+      title: 'Retrieve held order',
+      description: `Load the held order for ${order.customer_name || 'Walk-in'} into the current sale?`,
+      confirmLabel: 'Yes, Retrieve',
+      successMessage: t('pos.orderRetrieved'),
+      action: async () => {
+        const { error } = await supabase.from('held_orders').update({ status: 'retrieved' }).eq('id', order.id);
+        if (error) throw error;
+        const od = order.order_data;
+        if (od.cart) {
+          for (const item of od.cart) {
+            addToCart({ ...item, id: item.product_id, selling_price: item.price, cost_price: 0, stock: item.stock } as Product);
+          }
+        }
+        if (od.customer) setCustomer(od.customer);
+        if (typeof od.discount === 'number') setDiscount(od.discount);
+        if (od.paymentMethod) setPaymentMethod(od.paymentMethod);
+        if (typeof od.paidAmount === 'number') setPaidAmount(od.paidAmount);
+        if (typeof od.offerId === 'string') setSelectedOfferId(od.offerId);
+        setHeldOrders((current) => current.filter((held) => held.id !== order.id));
+        setHeldOrdersOpen(false);
+      },
+    });
   };
 
   const handleAddCustomer = async () => {
@@ -984,6 +994,7 @@ export default function POSPage() {
         />,
         document.body
       )}
+      {confirmationDialog}
     </div>
   );
 }

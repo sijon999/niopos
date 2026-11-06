@@ -48,6 +48,7 @@ import type {
 import type { Sale, SaleItem } from '@/types';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/use-translation';
+import { useConfirmation } from '@/hooks/use-confirmation';
 
 type DatePreset = 'all' | 'today' | 'yesterday' | 'thisWeek' | 'thisMonth' | 'custom';
 type PaymentFilter = 'all' | 'cash' | 'card' | 'mobile' | 'bank' | 'due';
@@ -158,6 +159,7 @@ export default function SalesPage() {
   const [receiptToPrint, setReceiptToPrint] = useState<HistoricalReceiptData | null>(null);
   const [preparingReceiptId, setPreparingReceiptId] = useState<string | null>(null);
   const [printPortalReady, setPrintPortalReady] = useState(false);
+  const { confirmAction, dialog: confirmationDialog } = useConfirmation();
 
   useEffect(() => {
     setPrintPortalReady(true);
@@ -321,17 +323,24 @@ export default function SalesPage() {
   };
 
   const handleCancel = async (sale: Sale): Promise<void> => {
-    setCancellingId(sale.id);
-    const { error } = await supabase.rpc('cancel_sale', { p_sale_id: sale.id });
-    if (error) {
-      toast.error(t('sales.cancelFailed'));
-      setCancellingId(null);
-      return;
-    }
-    toast.success(t('sales.cancelSuccess'));
-    setDetailSale(null);
-    setCancellingId(null);
-    loadSales();
+    await confirmAction({
+      title: 'Cancel sale',
+      description: `Cancel invoice ${sale.invoice_number}? This will reverse the sale using the existing cancellation workflow.`,
+      confirmLabel: 'Yes, Cancel Sale',
+      destructive: true,
+      successMessage: t('sales.cancelSuccess'),
+      action: async () => {
+        setCancellingId(sale.id);
+        try {
+          const { error } = await supabase.rpc('cancel_sale', { p_sale_id: sale.id });
+          if (error) throw error;
+          setDetailSale(null);
+          await loadSales();
+        } finally {
+          setCancellingId(null);
+        }
+      },
+    });
   };
 
   const clearFilters = (): void => {
@@ -764,6 +773,7 @@ export default function SalesPage() {
         />,
         document.body
       )}
+      {confirmationDialog}
     </div>
   );
 }
