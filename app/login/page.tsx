@@ -67,10 +67,10 @@ export default function LoginPage() {
       } else if (profile.status === 'suspended') {
         router.push('/account-suspended');
       } else if (profile.status === 'approved' && profile.role === 'super_admin') {
-        toast.success('Welcome back to StyleBazaar!');
+        toast.success('Welcome back to Nirvul POS!');
         router.push('/admin/users');
       } else if (profile.status === 'approved') {
-        toast.success('Welcome back to StyleBazaar!');
+        toast.success('Welcome back to Nirvul POS!');
         router.push(profile.role === 'cashier' ? '/admin/pos' : '/admin/dashboard');
       } else {
         toast.error('Your account status could not be verified. Please contact support.');
@@ -93,7 +93,7 @@ export default function LoginPage() {
             <div className="w-12 h-12 rounded-xl bg-amber-500/20 backdrop-blur flex items-center justify-center">
               <Shirt className="w-6 h-6 text-amber-400" />
             </div>
-            <span className="text-2xl font-bold font-heading">StyleBazaar</span>
+            <span className="text-2xl font-bold font-heading">Nirvul POS</span>
           </div>
           <div className="space-y-6">
             <h1 className="text-4xl font-bold font-heading leading-tight">
@@ -116,7 +116,7 @@ export default function LoginPage() {
               ))}
             </div>
           </div>
-          <p className="text-sm text-slate-400">© 2026 StyleBazaar. All rights reserved.</p>
+          <p className="text-sm text-slate-400">© 2026 Nirvul POS. All rights reserved.</p>
         </div>
       </div>
 
@@ -132,7 +132,7 @@ export default function LoginPage() {
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-800 to-black flex items-center justify-center">
               <Shirt className="w-5 h-5 text-amber-400" />
             </div>
-            <span className="text-xl font-bold font-heading">StyleBazaar</span>
+            <span className="text-xl font-bold font-heading">Nirvul POS</span>
           </div>
 
           <div className="space-y-2 mb-8">

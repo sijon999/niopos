@@ -287,7 +287,7 @@ export default function DashboardPage() {
           <div>
             <div className="flex items-center gap-2 mb-2">
               <Shirt className="w-5 h-5 text-amber-400" />
-              <span className="text-amber-400 text-sm font-medium">StyleBazaar Fashion POS</span>
+              <span className="text-amber-400 text-sm font-medium">Nirvul POS</span>
             </div>
             <h2 className="text-2xl font-bold font-heading text-white mb-1">
               {t('dashboard.welcomeName', { name: typeof user?.user_metadata?.full_name === 'string' ? user.user_metadata.full_name : user?.email || t('dashboard.there') })}

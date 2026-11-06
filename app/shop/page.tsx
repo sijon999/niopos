@@ -136,7 +136,7 @@ export default function ShopPage() {
                 <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-800 to-black flex items-center justify-center shadow-lg shadow-slate-800/30">
                   <Shirt className="w-5 h-5 text-amber-400" />
                 </div>
-                <span className="text-xl font-bold font-heading">StyleBazaar</span>
+                <span className="text-xl font-bold font-heading">Nirvul POS</span>
               </Link>
             </div>
 
@@ -404,7 +404,7 @@ export default function ShopPage() {
                           </button>
                         </div>
                         <div className="p-3 space-y-1 flex flex-col flex-1">
-                          <p className="text-xs text-muted-foreground">{product.brands?.name || 'StyleBazaar'}</p>
+                          <p className="text-xs text-muted-foreground">{product.brands?.name || 'Nirvul POS'}</p>
                           <h3 className="font-semibold text-sm line-clamp-1">{product.name}</h3>
                           <div className="flex items-center gap-1">
                             <div className="flex">
@@ -476,9 +476,9 @@ export default function ShopPage() {
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-800 to-black flex items-center justify-center">
                 <Shirt className="w-5 h-5 text-amber-400" />
               </div>
-              <span className="text-lg font-bold font-heading">StyleBazaar</span>
+              <span className="text-lg font-bold font-heading">Nirvul POS</span>
             </div>
-            <p className="text-sm text-muted-foreground">© 2026 StyleBazaar Fashion. All rights reserved.</p>
+            <p className="text-sm text-muted-foreground">© 2026 Nirvul POS. All rights reserved.</p>
           </div>
         </div>
       </footer>

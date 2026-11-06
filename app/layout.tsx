@@ -16,7 +16,7 @@ const notoBengali = Noto_Sans_Bengali({
 });
 
 export const metadata: Metadata = {
-  title: 'StyleBazaar POS — Clothing Store Management System',
+  title: 'Nirvul POS — Point of Sale and Store Management',
   description:
     'Complete point of sale and inventory management system for clothing stores. Manage products, track inventory, process sales, and analyze your business.',
   keywords: ['clothing POS', 'fashion POS', 'inventory management', 'point of sale', 'retail'],

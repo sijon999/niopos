@@ -310,7 +310,7 @@ export default function AdminLayout({
               <Shirt className="w-5 h-5 text-amber-400" />
             </div>
             <div>
-              <span className="text-lg font-bold font-heading">StyleBazaar</span>
+              <span className="text-lg font-bold font-heading">Nirvul POS</span>
               <p className="text-xs text-muted-foreground">{t('navigation.pos')}</p>
             </div>
           </Link>

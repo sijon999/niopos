@@ -90,17 +90,17 @@ export default function RegisterPage() {
             <div className="w-12 h-12 rounded-xl bg-amber-500/20 backdrop-blur flex items-center justify-center">
               <Shirt className="w-6 h-6 text-amber-400" />
             </div>
-            <span className="text-2xl font-bold font-heading">StyleBazaar</span>
+            <span className="text-2xl font-bold font-heading">Nirvul POS</span>
           </div>
           <div className="space-y-6">
             <h1 className="text-4xl font-bold font-heading leading-tight">
               Start selling fashion with the most powerful POS system
             </h1>
             <p className="text-slate-300 text-lg">
-              Join hundreds of clothing retailers using StyleBazaar to manage inventory, process sales, and delight customers.
+              Join retailers using Nirvul POS to manage inventory, process sales, and serve customers.
             </p>
           </div>
-          <p className="text-sm text-slate-400">© 2026 StyleBazaar. All rights reserved.</p>
+          <p className="text-sm text-slate-400">© 2026 Nirvul POS. All rights reserved.</p>
         </div>
       </div>
 
@@ -115,7 +115,7 @@ export default function RegisterPage() {
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-800 to-black flex items-center justify-center">
               <Shirt className="w-5 h-5 text-amber-400" />
             </div>
-            <span className="text-xl font-bold font-heading">StyleBazaar</span>
+            <span className="text-xl font-bold font-heading">Nirvul POS</span>
           </div>
 
           <div className="space-y-2 mb-8">
@@ -123,7 +123,7 @@ export default function RegisterPage() {
               {employeeInviteToken ? 'Join your store team' : 'Create your account'}
             </h2>
             <p className="text-muted-foreground">
-              {employeeInviteToken ? 'Create an account to accept your employee invitation' : 'Join StyleBazaar and start managing your store'}
+              {employeeInviteToken ? 'Create an account to accept your employee invitation' : 'Join Nirvul POS and start managing your store'}
             </p>
           </div>
 

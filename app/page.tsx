@@ -120,7 +120,7 @@ export default function LandingPage() {
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-800 to-black flex items-center justify-center shadow-lg shadow-slate-800/30">
                 <Shirt className="w-5 h-5 text-amber-400" />
               </div>
-              <span className="text-xl font-bold font-heading">StyleBazaar</span>
+              <span className="text-xl font-bold font-heading">Nirvul POS</span>
             </div>
 
             <div className="hidden md:flex items-center gap-8">
@@ -428,7 +428,7 @@ export default function LandingPage() {
                     </button>
                   </div>
                   <div className="p-3 space-y-1 flex flex-col flex-1">
-                    <p className="text-xs text-muted-foreground">{product.brands?.name || 'StyleBazaar'}</p>
+                    <p className="text-xs text-muted-foreground">{product.brands?.name || 'Nirvul POS'}</p>
                     <h3 className="font-semibold text-sm line-clamp-1">{product.name}</h3>
                     <div className="flex items-center gap-1">
                       <div className="flex">
@@ -509,7 +509,7 @@ export default function LandingPage() {
               Get 15% off your first order
             </h2>
             <p className="text-slate-300 text-lg mb-6">
-              Sign up today and receive an exclusive discount code. Plus, manage your fashion store with StyleBazaar POS — complete point of sale, inventory, analytics, and more.
+              Manage your store with Nirvul POS — point of sale, inventory, analytics, and more.
             </p>
             <div className="flex flex-col sm:flex-row gap-3">
               {user ? (
@@ -566,7 +566,7 @@ export default function LandingPage() {
                 <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-800 to-black flex items-center justify-center">
                   <Shirt className="w-5 h-5 text-amber-400" />
                 </div>
-                <span className="text-xl font-bold font-heading">StyleBazaar</span>
+                <span className="text-xl font-bold font-heading">Nirvul POS</span>
               </div>
               <p className="text-sm text-muted-foreground max-w-sm">
                 Your one-stop shop for premium fashion. Shirts, pants, panjabi, jeans, and more — quality clothing delivered with care.
@@ -591,7 +591,7 @@ export default function LandingPage() {
             </div>
           </div>
           <div className="border-t border-border/40 mt-8 pt-8 text-center text-sm text-muted-foreground">
-            © 2026 StyleBazaar. All rights reserved.
+            © 2026 Nirvul POS. All rights reserved.
           </div>
         </div>
       </footer>

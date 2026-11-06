@@ -87,7 +87,7 @@ export default function BarcodeHistoryPage() {
       <html><head><title>Reprint - ${item.product_name}</title>
       <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
       </head><body style="font-family:sans-serif;text-align:center;padding:20px;">
-      <div style="font-size:13px;font-weight:700;">StyleBazaar</div>
+      <div style="font-size:13px;font-weight:700;">Nirvul POS</div>
       <div style="font-size:12px;font-weight:600;margin:4px 0;">${item.product_name || ''}</div>
       <svg id="bc"></svg>
       <div style="font-size:10px;color:#666;">Format: ${item.barcode_format}</div>
@@ -261,7 +261,7 @@ export default function BarcodeHistoryPage() {
           {viewItem && (
             <div className="space-y-4">
               <div className="p-6 bg-white rounded-lg border flex flex-col items-center gap-2">
-                <p className="text-sm font-bold text-slate-900">StyleBazaar</p>
+                <p className="text-sm font-bold text-slate-900">Nirvul POS</p>
                 <p className="text-xs text-slate-700 text-center">{viewItem.product_name}</p>
                 <Barcode value={viewItem.barcode} height={60} fontSize={14} />
                 <p className="text-xs text-slate-500 font-mono">{viewItem.barcode}</p>
