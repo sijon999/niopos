@@ -26,12 +26,12 @@ export const FIELD_DEFINITIONS: FieldDef[] = [
   { key: 'cost_price', label: 'Purchase Price', required: false, numeric: true, aliases: ['purchase_price', 'cost_price', 'purchase price', 'ক্রয় মূল্য'] },
   { key: 'selling_price', label: 'Selling Price', required: false, numeric: true, aliases: ['selling_price', 'sale_price', 'price', 'selling price', 'বিক্রয় মূল্য'] },
   { key: 'wholesale_price', label: 'Wholesale Price', required: false, numeric: true, aliases: ['wholesale_price', 'wholesale price', 'পাইকারি মূল্য'] },
-  { key: 'discount_price', label: 'Discount Price', required: false, numeric: true, aliases: ['discount_price', 'discount price'] },
+  { key: 'discount_price', label: 'Discount Price', required: false, numeric: true, aliases: ['discount', 'discount_price', 'discount price'] },
   { key: 'stock', label: 'Stock', required: false, numeric: true, aliases: ['stock', 'quantity', 'qty', 'opening_stock', 'স্টক'] },
   { key: 'min_stock', label: 'Minimum Stock', required: false, numeric: true, aliases: ['min_stock', 'minimum_stock', 'alert_limit', 'minimum stock', 'অ্যালার্ট লিমিট'] },
-  { key: 'tax_rate', label: 'Tax Rate', required: false, numeric: true, aliases: ['tax_rate', 'tax', 'vat', 'ট্যাক্স'] },
-  { key: 'warehouse', label: 'Warehouse', required: false, aliases: ['warehouse', 'store', 'ওয়্যারহাউস'] },
-  { key: 'rack_shelf', label: 'Rack/Shelf', required: false, aliases: ['rack_shelf', 'rack', 'shelf', 'র্যাক'] },
+  { key: 'tax_rate', label: 'Tax Rate', required: false, numeric: true, aliases: ['tax_rate', 'tax', 'vat', 'tax/vat', 'ট্যাক্স'] },
+  { key: 'warehouse', label: 'Warehouse', required: false, aliases: ['warehouse', 'store', 'warehouse/store', 'ওয়্যারহাউস'] },
+  { key: 'rack_shelf', label: 'Rack/Shelf', required: false, aliases: ['rack_shelf', 'rack', 'shelf', 'rack/shelf', 'র্যাক'] },
   { key: 'short_description', label: 'Short Description', required: false, aliases: ['short_description', 'short description'] },
   { key: 'description', label: 'Description', required: false, aliases: ['description', 'desc', 'বর্ণনা'] },
   { key: 'status', label: 'Status', required: false, aliases: ['status', 'স্ট্যাটাস'] },
@@ -180,6 +180,8 @@ export function validateRows(
   for (const row of parsed) {
     const m = row.mapped;
     let hasError = false;
+    let hasDuplicateInFile = false;
+    let hasDuplicateInDatabase = false;
 
     if (!m.name || !m.name.trim()) {
       errors.push({ row: row.rowIndex, field: 'name', message: 'csvImport.errors.nameRequired', productCode: m.product_code });
@@ -236,48 +238,55 @@ export function validateRows(
 
     if (m.product_code) {
       const lc = m.product_code.toLowerCase();
-      if (existingCodes.has(lc)) {
+      if (seenCodes.has(lc)) {
         isDuplicate = true;
-        dupReason = 'csvImport.duplicateReasons.productCodeExists';
-      } else if (seenCodes.has(lc)) {
-        isDuplicate = true;
+        hasDuplicateInFile = true;
         dupReason = 'csvImport.duplicateReasons.productCodeInFile';
       } else {
         seenCodes.set(lc, row.rowIndex);
+        if (existingCodes.has(lc)) {
+          isDuplicate = true;
+          hasDuplicateInDatabase = true;
+          dupReason = 'csvImport.duplicateReasons.productCodeExists';
+        }
       }
     }
 
-    if (m.barcode && !isDuplicate) {
+    if (m.barcode) {
       const lc = m.barcode.toLowerCase();
-      if (existingBarcodes.has(lc)) {
+      if (seenBarcodes.has(lc)) {
         isDuplicate = true;
-        dupReason = 'csvImport.duplicateReasons.barcodeExists';
-      } else if (seenBarcodes.has(lc)) {
-        isDuplicate = true;
-        dupReason = 'csvImport.duplicateReasons.barcodeInFile';
+        hasDuplicateInFile = true;
+        if (!dupReason) dupReason = 'csvImport.duplicateReasons.barcodeInFile';
       } else {
         seenBarcodes.set(lc, row.rowIndex);
+        if (existingBarcodes.has(lc)) {
+          isDuplicate = true;
+          hasDuplicateInDatabase = true;
+          if (!dupReason) dupReason = 'csvImport.duplicateReasons.barcodeExists';
+        }
       }
     }
 
-    if (m.sku && !isDuplicate) {
+    if (m.sku) {
       const lc = m.sku.toLowerCase();
-      if (existingSkus.has(lc)) {
+      if (seenSkus.has(lc)) {
         isDuplicate = true;
-        dupReason = 'csvImport.duplicateReasons.skuExists';
-      } else if (seenSkus.has(lc)) {
-        isDuplicate = true;
-        dupReason = 'csvImport.duplicateReasons.skuInFile';
+        hasDuplicateInFile = true;
+        if (!dupReason) dupReason = 'csvImport.duplicateReasons.skuInFile';
       } else {
         seenSkus.set(lc, row.rowIndex);
+        if (existingSkus.has(lc)) {
+          isDuplicate = true;
+          hasDuplicateInDatabase = true;
+          if (!dupReason) dupReason = 'csvImport.duplicateReasons.skuExists';
+        }
       }
     }
 
     if (isDuplicate) {
-      if (mode === 'update') {
+      if (mode === 'update' && hasDuplicateInDatabase && !hasDuplicateInFile) {
         validRows.push(row);
-      } else if (mode === 'skip') {
-        duplicates.push({ row: row.rowIndex, name: m.name || '', code: m.product_code || '', reason: dupReason });
       } else {
         duplicates.push({ row: row.rowIndex, name: m.name || '', code: m.product_code || '', reason: dupReason });
       }

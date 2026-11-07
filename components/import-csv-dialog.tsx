@@ -233,14 +233,70 @@ export function ImportCSVDialog({
       if (toInsert.length > 0) {
         const insertData = toInsert.map(({ rowRef, ...rest }) => rest);
         const { data: inserted, error } = await supabase.from('products').insert(insertData).select('id, stock, name');
+        const insertedProducts: Array<{ id: string; stock: number; name: string }> = [];
         if (error) {
-          failed += toInsert.length;
           for (const item of toInsert) {
-            failedRows.push({ row: item.rowRef, name: item.name, code: item.product_code || '', error: error.message });
+            const { rowRef, ...productData } = item;
+            const { data: insertedRow, error: rowError } = await supabase
+              .from('products')
+              .insert(productData)
+              .select('id, stock, name')
+              .single();
+
+            if (rowError) {
+              if (rowError.code === '23505' && importMode === 'skip') {
+                skipped++;
+                continue;
+              }
+
+              if (rowError.code === '23505' && importMode === 'update') {
+                const matchFields: Array<['product_code' | 'barcode' | 'sku', string]> = [];
+                if (productData.product_code) matchFields.push(['product_code', productData.product_code]);
+                if (productData.barcode) matchFields.push(['barcode', productData.barcode]);
+                if (productData.sku) matchFields.push(['sku', productData.sku]);
+
+                let matchedExisting = false;
+                for (const [field, value] of matchFields) {
+                  const { data: existing, error: lookupError } = await supabase
+                    .from('products')
+                    .select('id')
+                    .eq(field, value)
+                    .maybeSingle();
+
+                  if (lookupError) {
+                    failed++;
+                    failedRows.push({ row: rowRef, name: productData.name, code: productData.product_code || '', error: lookupError.message });
+                    matchedExisting = true;
+                    break;
+                  }
+                  if (!existing) continue;
+
+                  const { product_code, sku, barcode, ...updateData } = productData;
+                  const { error: updateError } = await supabase.from('products').update(updateData).eq('id', existing.id);
+                  if (updateError) {
+                    failed++;
+                    failedRows.push({ row: rowRef, name: productData.name, code: product_code || '', error: updateError.message });
+                  } else {
+                    updated++;
+                  }
+                  matchedExisting = true;
+                  break;
+                }
+                if (matchedExisting) continue;
+              }
+
+              failed++;
+              failedRows.push({ row: rowRef, name: productData.name, code: productData.product_code || '', error: rowError.message });
+            } else if (insertedRow) {
+              insertedProducts.push(insertedRow);
+            }
           }
         } else if (inserted) {
-          imported += inserted.length;
-          const movements = inserted
+          insertedProducts.push(...inserted);
+        }
+        imported += insertedProducts.length;
+
+        const movements = insertedProducts
             .filter((p: any) => Number(p.stock) > 0)
             .map((p: any) => ({
               product_id: p.id,
@@ -249,9 +305,8 @@ export function ImportCSVDialog({
               reference: 'CSV Import',
               note: 'Bulk import opening stock',
             }));
-          if (movements.length > 0) {
-            await supabase.from('stock_movements').insert(movements);
-          }
+        if (movements.length > 0) {
+          await supabase.from('stock_movements').insert(movements);
         }
       }
 
@@ -565,7 +620,7 @@ export function ImportCSVDialog({
                   <CheckCircle2 className="w-16 h-16 mx-auto mb-3 text-emerald-500" />
                   <p className="text-lg font-bold">{t('csvImport.completed')}</p>
                 </div>
-                <div className="grid grid-cols-4 gap-3 max-w-md mx-auto">
+                <div className="grid grid-cols-5 gap-3 max-w-2xl mx-auto">
                   <div className="rounded-lg border p-3 text-center">
                     <p className="text-xs text-muted-foreground">{t('csvImport.totalRows')}</p>
                     <p className="text-xl font-bold">{progress.total}</p>
@@ -577,6 +632,10 @@ export function ImportCSVDialog({
                   <div className="rounded-lg border p-3 text-center bg-indigo-50 dark:bg-indigo-900/10 border-indigo-200 dark:border-indigo-800">
                     <p className="text-xs text-muted-foreground">{t('csvImport.updated')}</p>
                     <p className="text-xl font-bold text-indigo-600">{progress.updated}</p>
+                  </div>
+                  <div className="rounded-lg border p-3 text-center bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800">
+                    <p className="text-xs text-muted-foreground">{t('csvImport.skipped')}</p>
+                    <p className="text-xl font-bold text-amber-600">{progress.skipped}</p>
                   </div>
                   <div className="rounded-lg border p-3 text-center bg-rose-50 dark:bg-rose-900/10 border-rose-200 dark:border-rose-800">
                     <p className="text-xs text-muted-foreground">{t('csvImport.failed')}</p>
