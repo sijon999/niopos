@@ -110,6 +110,7 @@
   "dashboard": {
     "title": "Dashboard",
     "totalSales": "Total Sales",
+    "todayTotalSales": "Today's Total Sales",
     "netSales": "Net Sales",
     "todaySales": "Today's Sales",
     "totalProducts": "Total Products",
@@ -156,7 +157,8 @@
     "itemsCount": "{count} items",
     "noSalesYet": "No sales yet",
     "there": "there",
-    "profitLoadFailed": "Unable to load today's sales profit"
+    "profitLoadFailed": "Unable to load today's sales profit",
+    "metricsLoadFailed": "Unable to load dashboard data"
   },
   "products": {
     "title": "Product List",

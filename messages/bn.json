@@ -110,6 +110,7 @@
   "dashboard": {
     "title": "ড্যাশবোর্ড",
     "totalSales": "সর্বমোট বিক্রয়",
+    "todayTotalSales": "আজকের মোট বিক্রয়",
     "netSales": "নিট বিক্রয়",
     "todaySales": "আজকের বিক্রয়",
     "totalProducts": "সর্বমোট পণ্য",
@@ -156,7 +157,8 @@
     "itemsCount": "{count}টি আইটেম",
     "noSalesYet": "এখনও কোনো বিক্রয় নেই",
     "there": "আপনি",
-    "profitLoadFailed": "আজকের বিক্রয় লাভ লোড করা যায়নি"
+    "profitLoadFailed": "আজকের বিক্রয় লাভ লোড করা যায়নি",
+    "metricsLoadFailed": "ড্যাশবোর্ডের তথ্য লোড করা যায়নি"
   },
   "products": {
     "title": "পণ্য তালিকা",

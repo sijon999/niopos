@@ -46,6 +46,18 @@ import { useTranslation } from '@/hooks/use-translation';
 
 const fmt = (n: number) => `৳${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+function sumRows<T>(
+  result: { data: T[] | null; error: { message: string } | null },
+  getValue: (row: T) => unknown
+): number | null {
+  if (result.error) return null;
+  return (result.data || []).reduce((sum, row) => sum + Number(getValue(row) || 0), 0);
+}
+
+function getMetricError(name: string, error: { message: string } | null) {
+  return error ? { name, message: error.message } : null;
+}
+
 type StatBox = {
   labelKey: string;
   value: string;
@@ -61,39 +73,58 @@ export default function DashboardPage() {
   const [topProducts, setTopProducts] = useState<any[]>([]);
   const [recentSales, setRecentSales] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const { t, locale } = useTranslation();
+  const userId = user?.id;
 
   useEffect(() => {
+    if (authLoading) return;
+    if (!userId) {
+      setLoading(false);
+      return;
+    }
+
+    let active = true;
+    let requestInFlight = false;
+
     async function loadDashboard() {
+      if (requestInFlight) return;
+      requestInFlight = true;
+      try {
       const now = new Date();
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+      const todayStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const tomorrowStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+      const todayStart = todayStartDate.toISOString();
+      const tomorrowStart = tomorrowStartDate.toISOString();
+      const todayEnd = new Date(tomorrowStartDate.getTime() - 1).toISOString();
+      const todayDate = [
+        todayStartDate.getFullYear(),
+        String(todayStartDate.getMonth() + 1).padStart(2, '0'),
+        String(todayStartDate.getDate()).padStart(2, '0'),
+      ].join('-');
       const last30Start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
-      const fyStart = new Date(now.getFullYear(), 6, 1).toISOString(); // July 1 fiscal year start (Bangladesh)
-      if (now.getMonth() < 6) {
-        // Before July, fiscal year started previous July
-      }
+      const financialYearStartYear = now.getFullYear() - (now.getMonth() < 6 ? 1 : 0);
+      const fyStart = new Date(financialYearStartYear, 6, 1).toISOString();
 
       const [
-        todaySalesRes, todayDueSalesRes, expensesRes, incomeRes,
+        todaySalesRes, todayDueSalesRes, expensesRes,
         purchasesRes, duePurchasesRes,
         saleReturnsRes, purchaseReturnsRes,
         todayCollectionsRes, todayPaymentsRes,
         productsRes, customersRes, suppliersRes,
-        invoicesRes, customerDueRes, supplierDueRes,
+        invoicesRes, customerDueRes,
         stockRes,
         recentSalesRes,
         todayProfitRes,
       ] = await Promise.all([
-        supabase.from('sales').select('total, sale_date').eq('status', 'completed').gte('sale_date', todayStart),
-        supabase.from('sales').select('total, due_amount').eq('status', 'completed').eq('payment_status', 'due').gte('sale_date', todayStart),
-        supabase.from('expenses').select('amount').gte('date', todayStart),
-        supabase.from('customer_payments').select('amount').gte('payment_date', todayStart),
-        supabase.from('purchases').select('total').gte('purchase_date', todayStart),
-        supabase.from('purchases').select('total, due_amount').eq('payment_status', 'due').gte('purchase_date', todayStart),
+        supabase.from('sales').select('total, sale_date').eq('status', 'completed').gte('sale_date', todayStart).lt('sale_date', tomorrowStart),
+        supabase.from('sales').select('total, due_amount').eq('status', 'completed').eq('payment_status', 'due').gte('sale_date', todayStart).lt('sale_date', tomorrowStart),
+        supabase.from('expenses').select('amount').eq('date', todayDate),
+        supabase.from('purchases').select('total').gte('purchase_date', todayStart).lt('purchase_date', tomorrowStart),
+        supabase.from('purchases').select('total, due_amount').eq('payment_status', 'due').gte('purchase_date', todayStart).lt('purchase_date', tomorrowStart),
         supabase.rpc('get_sales_return_report', {
           p_date_from: todayStart,
-          p_date_to: null,
+          p_date_to: todayEnd,
           p_customer_id: null,
           p_product_ids: [],
           p_category_ids: [],
@@ -101,20 +132,19 @@ export default function DashboardPage() {
           p_units: [],
           p_time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
         }),
-        supabase.from('purchase_returns').select('total').gte('return_date', todayStart),
-        supabase.from('customer_payments').select('amount').gte('payment_date', todayStart),
-        supabase.from('supplier_payments').select('amount').gte('payment_date', todayStart),
+        supabase.from('purchase_returns').select('total').gte('return_date', todayStart).lt('return_date', tomorrowStart),
+        supabase.from('customer_payments').select('amount').gte('payment_date', todayStart).lt('payment_date', tomorrowStart),
+        supabase.from('supplier_payments').select('amount').gte('payment_date', todayStart).lt('payment_date', tomorrowStart),
         supabase.from('products').select('id, cost_price, stock', { count: 'exact', head: false }),
         supabase.from('customers').select('id', { count: 'exact', head: true }),
         supabase.from('suppliers').select('id', { count: 'exact', head: true }),
         supabase.from('sales').select('id', { count: 'exact', head: true }),
         supabase.from('customers').select('total_due'),
-        supabase.from('suppliers').select('total_due'),
         supabase.from('products').select('stock, cost_price, selling_price'),
         supabase.from('sales').select('*, customers(name), employees(name), sale_items(*)').order('sale_date', { ascending: false }).limit(5),
         supabase.rpc('get_sales_profit_summary', {
           p_date_from: todayStart,
-          p_date_to: null,
+          p_date_to: todayEnd,
           p_payment_method: null,
           p_customer_id: null,
           p_status: 'completed',
@@ -127,15 +157,37 @@ export default function DashboardPage() {
         }),
       ]);
 
-      const todaySales = todaySalesRes.data?.reduce((sum, s) => sum + Number(s.total), 0) || 0;
-      const todayDueSales = todayDueSalesRes.data?.reduce((sum, s) => sum + Number(s.due_amount || s.total), 0) || 0;
-      const expenses = expensesRes.data?.reduce((sum, e) => sum + Number(e.amount), 0) || 0;
-      const income = incomeRes.data?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
-      const totalPurchases = purchasesRes.data?.reduce((sum, p) => sum + Number(p.total), 0) || 0;
-      const duePurchases = duePurchasesRes.data?.reduce((sum, p) => sum + Number(p.due_amount || p.total), 0) || 0;
-      if (saleReturnsRes.error) {
-        toast.error(`${t('dashboard.profitLoadFailed')}: ${saleReturnsRes.error.message}`);
+      if (!active) return;
+      const metricErrors = [
+        getMetricError('sales', todaySalesRes.error),
+        getMetricError('due sales', todayDueSalesRes.error),
+        getMetricError('expenses', expensesRes.error),
+        getMetricError('collections', todayCollectionsRes.error),
+        getMetricError('purchases', purchasesRes.error),
+        getMetricError('due purchases', duePurchasesRes.error),
+        getMetricError('sales returns', saleReturnsRes.error),
+        getMetricError('purchase returns', purchaseReturnsRes.error),
+        getMetricError('customer payments', todayPaymentsRes.error),
+        getMetricError('products', productsRes.error),
+        getMetricError('customers', customersRes.error),
+        getMetricError('suppliers', suppliersRes.error),
+        getMetricError('invoices', invoicesRes.error),
+        getMetricError('customer balances', customerDueRes.error),
+        getMetricError('stock', stockRes.error),
+        getMetricError('recent sales', recentSalesRes.error),
+        getMetricError('sales profit', todayProfitRes.error),
+      ].filter((entry): entry is { name: string; message: string } => entry !== null);
+      if (metricErrors.length > 0) {
+        console.error('[Dashboard] Failed to load metrics:', metricErrors);
+        toast.error(`${t('dashboard.metricsLoadFailed')}: ${metricErrors[0].name} — ${metricErrors[0].message}`);
       }
+
+      const todaySales = sumRows(todaySalesRes, (sale) => sale.total);
+      const todayDueSales = sumRows(todayDueSalesRes, (sale) => sale.due_amount || sale.total);
+      const expenses = sumRows(expensesRes, (expense) => expense.amount);
+      const income = sumRows(todayCollectionsRes, (payment) => payment.amount);
+      const totalPurchases = sumRows(purchasesRes, (purchase) => purchase.total);
+      const duePurchases = sumRows(duePurchasesRes, (purchase) => purchase.due_amount || purchase.total);
       const returnReport = saleReturnsRes.error
         ? null
         : saleReturnsRes.data as {
@@ -143,43 +195,44 @@ export default function DashboardPage() {
           profit_reversal: number;
         } | null;
       const saleReturns = returnReport ? Number(returnReport.total_return || 0) : null;
-      const purchaseReturns = purchaseReturnsRes.data?.reduce((sum, r) => sum + Number(r.total), 0) || 0;
-      const todayCollections = todayCollectionsRes.data?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
-      const todayPayments = todayPaymentsRes.data?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
-      const stockCount = stockRes.data?.reduce((sum, p) => sum + Number(p.stock || 0), 0) || 0;
-      const stockValue = stockRes.data?.reduce((sum, p) => sum + Number(p.stock || 0) * Number(p.cost_price || 0), 0) || 0;
-      const totalCustomerDue = customerDueRes.data?.reduce((sum, c) => sum + Number(c.total_due || 0), 0) || 0;
-      const totalSupplierDue = supplierDueRes.data?.reduce((sum, s) => sum + Number(s.total_due || 0), 0) || 0;
-
-      if (todayProfitRes.error) {
-        toast.error(`${t('dashboard.profitLoadFailed')}: ${todayProfitRes.error.message}`);
-      }
+      const purchaseReturns = sumRows(purchaseReturnsRes, (row) => row.total);
+      const todayCollections = income;
+      const todayPayments = sumRows(todayPaymentsRes, (payment) => payment.amount);
+      const stockCount = sumRows(stockRes, (product) => product.stock);
+      const stockValue = stockRes.error ? null : (stockRes.data || []).reduce(
+        (sum, product) => sum + Number(product.stock || 0) * Number(product.cost_price || 0),
+        0
+      );
+      const totalCustomerDue = sumRows(customerDueRes, (customer) => customer.total_due);
       const netProfit = todayProfitRes.error
         ? null
         : returnReport
+          && income !== null && expenses !== null
           ? Number(todayProfitRes.data || 0) - Number(returnReport.profit_reversal || 0) + income - expenses
           : null;
 
       const statBoxes: StatBox[] = [
-        { labelKey: 'dashboard.netSales', value: saleReturns === null ? '—' : fmt(todaySales - saleReturns), icon: ShoppingCart, color: 'from-slate-800 to-black' },
+        { labelKey: 'dashboard.todayTotalSales', value: todaySales === null ? '—' : fmt(todaySales), icon: ShoppingCart, color: 'from-amber-500 to-orange-600' },
+        { labelKey: 'dashboard.netSales', value: saleReturns === null || todaySales === null ? '—' : fmt(todaySales - saleReturns), icon: ShoppingCart, color: 'from-slate-800 to-black' },
         { labelKey: 'dashboard.netProfit', value: netProfit === null ? '—' : fmt(netProfit), icon: TrendingUp, color: 'from-emerald-500 to-green-600' },
-        { labelKey: 'dashboard.dueSales', value: fmt(todayDueSales), icon: CreditCard, color: 'from-amber-500 to-orange-600' },
-        { labelKey: 'dashboard.expenses', value: fmt(expenses), icon: CreditCard, color: 'from-rose-500 to-pink-600' },
-        { labelKey: 'dashboard.income', value: fmt(income), icon: HandCoins, color: 'from-teal-500 to-cyan-600' },
-        { labelKey: 'dashboard.totalPurchases', value: fmt(totalPurchases), icon: Truck, color: 'from-blue-500 to-indigo-600' },
-        { labelKey: 'dashboard.duePurchases', value: fmt(duePurchases), icon: Truck, color: 'from-violet-500 to-purple-600' },
+        { labelKey: 'dashboard.dueSales', value: todayDueSales === null ? '—' : fmt(todayDueSales), icon: CreditCard, color: 'from-amber-500 to-orange-600' },
+        { labelKey: 'dashboard.expenses', value: expenses === null ? '—' : fmt(expenses), icon: CreditCard, color: 'from-rose-500 to-pink-600' },
+        { labelKey: 'dashboard.income', value: income === null ? '—' : fmt(income), icon: HandCoins, color: 'from-teal-500 to-cyan-600' },
+        { labelKey: 'dashboard.totalPurchases', value: totalPurchases === null ? '—' : fmt(totalPurchases), icon: Truck, color: 'from-blue-500 to-indigo-600' },
+        { labelKey: 'dashboard.duePurchases', value: duePurchases === null ? '—' : fmt(duePurchases), icon: Truck, color: 'from-violet-500 to-purple-600' },
         { labelKey: 'dashboard.salesReturns', value: saleReturns === null ? '—' : fmt(saleReturns), icon: RotateCcw, color: 'from-orange-500 to-red-600' },
-        { labelKey: 'dashboard.purchaseReturns', value: fmt(purchaseReturns), icon: RotateCcw, color: 'from-red-500 to-rose-600' },
-        { labelKey: 'dashboard.todayCollections', value: fmt(todayCollections), icon: Wallet, color: 'from-green-500 to-emerald-600' },
-        { labelKey: 'dashboard.todayPayments', value: fmt(todayPayments), icon: Banknote, color: 'from-cyan-500 to-blue-600' },
-        { labelKey: 'dashboard.stockQuantity', value: stockCount.toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US'), icon: Package, color: 'from-amber-600 to-yellow-600' },
-        { labelKey: 'dashboard.stockValue', value: fmt(stockValue), icon: DollarSign, color: 'from-lime-500 to-green-600' },
-        { labelKey: 'dashboard.totalCustomers', value: (customersRes.count || 0).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US'), icon: Users, color: 'from-teal-600 to-cyan-700' },
-        { labelKey: 'dashboard.totalSuppliers', value: (suppliersRes.count || 0).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US'), icon: Truck, color: 'from-indigo-500 to-blue-600' },
-        { labelKey: 'dashboard.totalInvoices', value: (invoicesRes.count || 0).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US'), icon: FileText, color: 'from-slate-600 to-gray-700' },
-        { labelKey: 'dashboard.totalCustomerDue', value: fmt(totalCustomerDue), icon: UserCheck, color: 'from-pink-500 to-rose-600' },
+        { labelKey: 'dashboard.purchaseReturns', value: purchaseReturns === null ? '—' : fmt(purchaseReturns), icon: RotateCcw, color: 'from-red-500 to-rose-600' },
+        { labelKey: 'dashboard.todayCollections', value: todayCollections === null ? '—' : fmt(todayCollections), icon: Wallet, color: 'from-green-500 to-emerald-600' },
+        { labelKey: 'dashboard.todayPayments', value: todayPayments === null ? '—' : fmt(todayPayments), icon: Banknote, color: 'from-cyan-500 to-blue-600' },
+        { labelKey: 'dashboard.stockQuantity', value: stockCount === null ? '—' : stockCount.toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US'), icon: Package, color: 'from-amber-600 to-yellow-600' },
+        { labelKey: 'dashboard.stockValue', value: stockValue === null ? '—' : fmt(stockValue), icon: DollarSign, color: 'from-lime-500 to-green-600' },
+        { labelKey: 'dashboard.totalCustomers', value: customersRes.error ? '—' : (customersRes.count || 0).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US'), icon: Users, color: 'from-teal-600 to-cyan-700' },
+        { labelKey: 'dashboard.totalSuppliers', value: suppliersRes.error ? '—' : (suppliersRes.count || 0).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US'), icon: Truck, color: 'from-indigo-500 to-blue-600' },
+        { labelKey: 'dashboard.totalInvoices', value: invoicesRes.error ? '—' : (invoicesRes.count || 0).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US'), icon: FileText, color: 'from-slate-600 to-gray-700' },
+        { labelKey: 'dashboard.totalCustomerDue', value: totalCustomerDue === null ? '—' : fmt(totalCustomerDue), icon: UserCheck, color: 'from-pink-500 to-rose-600' },
       ];
 
+      if (!active) return;
       setStats(statBoxes);
       setRecentSales(recentSalesRes.data || []);
 
@@ -189,6 +242,11 @@ export default function DashboardPage() {
         .select('total, sale_date')
         .gte('sale_date', last30Start)
         .order('sale_date', { ascending: true });
+      if (!active) return;
+      if (sales30Res.error) {
+        console.error('[Dashboard] Failed to load 30-day sales chart:', sales30Res.error);
+        toast.error(`${t('dashboard.metricsLoadFailed')}: ${sales30Res.error.message}`);
+      }
 
       const days30: any[] = [];
       for (let i = 29; i >= 0; i--) {
@@ -211,9 +269,14 @@ export default function DashboardPage() {
         .select('total, sale_date')
         .gte('sale_date', fyStart)
         .order('sale_date', { ascending: true });
+      if (!active) return;
+      if (fyRes.error) {
+        console.error('[Dashboard] Failed to load financial year chart:', fyRes.error);
+        toast.error(`${t('dashboard.metricsLoadFailed')}: ${fyRes.error.message}`);
+      }
 
       const months = Array.from({ length: 12 }, (_, index) =>
-        new Date(now.getFullYear(), 6 + index, 1).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-US', { month: 'short' })
+        new Date(financialYearStartYear, 6 + index, 1).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-US', { month: 'short' })
       );
       const fyData: any[] = months.map((month) => ({ month, sales: 0 }));
       (fyRes.data || []).forEach((s) => {
@@ -228,6 +291,11 @@ export default function DashboardPage() {
 
       // Category distribution
       const catRes = await supabase.from('products').select('categories(name), stock');
+      if (!active) return;
+      if (catRes.error) {
+        console.error('[Dashboard] Failed to load category chart:', catRes.error);
+        toast.error(`${t('dashboard.metricsLoadFailed')}: ${catRes.error.message}`);
+      }
       const catMap: Record<string, number> = {};
       (catRes.data || []).forEach((p: any) => {
         const catName = p.categories?.name || 'Other';
@@ -244,6 +312,11 @@ export default function DashboardPage() {
         .select('product_name, quantity, total')
         .order('total', { ascending: false })
         .limit(5);
+      if (!active) return;
+      if (topProdRes.error) {
+        console.error('[Dashboard] Failed to load top products:', topProdRes.error);
+        toast.error(`${t('dashboard.metricsLoadFailed')}: ${topProdRes.error.message}`);
+      }
       setTopProducts(
         (topProdRes.data || []).map((item: any) => ({
           name: item.product_name,
@@ -252,10 +325,58 @@ export default function DashboardPage() {
         }))
       );
 
-      setLoading(false);
+      } finally {
+        requestInFlight = false;
+        if (active) setLoading(false);
+      }
     }
-    loadDashboard();
-  }, [locale, t]);
+    void loadDashboard();
+    let refreshTimeout: number | null = null;
+    const scheduleDashboardRefresh = () => {
+      if (refreshTimeout !== null) window.clearTimeout(refreshTimeout);
+      refreshTimeout = window.setTimeout(() => {
+        refreshTimeout = null;
+        void loadDashboard();
+      }, 400);
+    };
+    const channel = supabase.channel(`dashboard-${userId}`);
+    [
+      'sales',
+      'sale_items',
+      'expenses',
+      'customer_payments',
+      'purchases',
+      'supplier_payments',
+      'sale_returns',
+      'purchase_returns',
+      'products',
+      'customers',
+      'suppliers',
+      'categories',
+    ].forEach((table) => {
+      channel.on('postgres_changes', { event: '*', schema: 'public', table }, scheduleDashboardRefresh);
+    });
+    channel.subscribe((status) => {
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        console.error('[Dashboard] Realtime refresh subscription failed:', status);
+      }
+    });
+    const intervalId = window.setInterval(() => void loadDashboard(), 60_000);
+    const handleFocus = () => { void loadDashboard(); };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void loadDashboard();
+    };
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+      if (refreshTimeout !== null) window.clearTimeout(refreshTimeout);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      void supabase.removeChannel(channel);
+    };
+  }, [authLoading, userId, locale, t]);
 
   if (loading) {
     return (
@@ -307,7 +428,7 @@ export default function DashboardPage() {
         </div>
       </motion.div>
 
-      {/* 17 Stat Boxes */}
+      {/* Dashboard stat boxes */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
         {stats.map((stat, i) => (
           <motion.div
