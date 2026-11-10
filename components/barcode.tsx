@@ -5,6 +5,7 @@ import JsBarcode from 'jsbarcode';
 
 type BarcodeProps = {
   value: string;
+  format?: string;
   width?: number;
   height?: number;
   displayValue?: boolean;
@@ -14,6 +15,7 @@ type BarcodeProps = {
 
 export function Barcode({
   value,
+  format = 'CODE128',
   width = 2,
   height = 60,
   displayValue = true,
@@ -26,18 +28,19 @@ export function Barcode({
     if (!ref.current || !value) return;
     try {
       JsBarcode(ref.current, value, {
-        format: 'CODE128',
+        format,
         width,
         height,
         displayValue,
-        fontSize,
+        fontSize: displayValue ? fontSize : 0,
+        textMargin: displayValue ? undefined : 0,
         margin: 4,
         background: '#ffffff',
       });
-    } catch {
-      // invalid barcode value — render nothing
+    } catch (error) {
+      console.error('Barcode rendering failed:', error);
     }
-  }, [value, width, height, displayValue, fontSize]);
+  }, [value, format, width, height, displayValue, fontSize]);
 
   if (!value) return null;
 

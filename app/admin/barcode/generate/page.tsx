@@ -22,15 +22,28 @@ import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { supabase } from '@/lib/supabase';
 import { Barcode } from '@/components/barcode';
+import JsBarcode from 'jsbarcode';
 import type { Product } from '@/types';
 import { toast } from 'sonner';
 import { useConfirmation } from '@/hooks/use-confirmation';
+
+const DEFAULT_LABEL_WIDTH_MM = 40;
+const DEFAULT_LABEL_HEIGHT_MM = 25;
+const LABEL_SAFE_PADDING_MM = 1;
+const BARCODE_QUIET_ZONE_PX = 4;
+const MAX_BARCODE_MODULE_WIDTH_PX = 2.1;
+const MIN_BARCODE_MODULE_WIDTH_PX = 0.75;
 
 type BarcodePrintLabel = {
   name: string;
   barcode: string;
   format: string;
   price: number;
+};
+
+type BarcodeLabelSize = {
+  widthMm: number;
+  heightMm: number;
 };
 
 function escapeHtml(value: string): string {
@@ -42,37 +55,90 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#039;');
 }
 
-function escapeScriptString(value: string): string {
-  return JSON.stringify(value).replace(/</g, '\\u003c');
+function renderPrintBarcode(value: string, format: string, maxWidthMm: number): string {
+  const namespace = 'http://www.w3.org/2000/svg';
+  const probe = document.createElementNS(namespace, 'svg');
+  JsBarcode(probe, value, {
+    format,
+    width: 1,
+    height: 1,
+    displayValue: false,
+    fontSize: 0,
+    textMargin: 0,
+    margin: 0,
+    background: '#ffffff',
+  });
+
+  // A 1px render reveals the encoded module count without scaling the final barcode.
+  const moduleCount = Number.parseFloat(probe.getAttribute('width') || '');
+  const maxWidthPx = (maxWidthMm * 96) / 25.4;
+  const availableBarWidthPx = maxWidthPx - BARCODE_QUIET_ZONE_PX * 2;
+  let moduleWidth = Math.min(MAX_BARCODE_MODULE_WIDTH_PX, availableBarWidthPx / moduleCount);
+  if (!Number.isFinite(moduleCount) || moduleCount <= 0 || moduleWidth < MIN_BARCODE_MODULE_WIDTH_PX) {
+    throw new Error('This barcode is too long to print reliably at this label width.');
+  }
+
+  const svg = document.createElementNS(namespace, 'svg');
+  const render = () => JsBarcode(svg, value, {
+      format,
+      width: moduleWidth,
+      height: 30,
+      displayValue: false,
+      fontSize: 0,
+      textMargin: 0,
+      margin: 0,
+      marginTop: 0,
+      marginBottom: 0,
+      marginLeft: BARCODE_QUIET_ZONE_PX,
+      marginRight: BARCODE_QUIET_ZONE_PX,
+      lineColor: '#000000',
+      background: '#ffffff',
+    });
+
+  render();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const renderedWidthPx = Number.parseFloat(svg.getAttribute('width') || '');
+    if (renderedWidthPx <= maxWidthPx) break;
+
+    const renderedBarsWidthPx = renderedWidthPx - BARCODE_QUIET_ZONE_PX * 2;
+    moduleWidth = Math.floor(
+      (moduleWidth * (availableBarWidthPx / renderedBarsWidthPx)) * 100
+    ) / 100;
+    if (moduleWidth < MIN_BARCODE_MODULE_WIDTH_PX) {
+      throw new Error('This barcode is too long to print reliably at this label width.');
+    }
+    render();
+  }
+  if (Number.parseFloat(svg.getAttribute('width') || '') > maxWidthPx) {
+    throw new Error('This barcode cannot fit within the selected label width.');
+  }
+  return new XMLSerializer().serializeToString(svg);
 }
 
-function printBarcodeLabels(labels: BarcodePrintLabel[], storeName: string): boolean {
+function printBarcodeLabels(
+  labels: BarcodePrintLabel[],
+  storeName: string,
+  labelSize: BarcodeLabelSize
+): boolean {
   const win = window.open('', '_blank', 'width=600,height=800');
   if (!win) return false;
 
-  const labelMarkup = labels.map((label, index) => `
+  let labelMarkup: string;
+  try {
+    const maxBarcodeWidthMm = labelSize.widthMm - LABEL_SAFE_PADDING_MM * 2;
+    labelMarkup = labels.map((label) => `
     <div class="label">
-      ${storeName.trim() ? `<div class="store">${escapeHtml(storeName.trim())}</div>` : ''}
+      <div class="store">${escapeHtml(storeName.trim())}</div>
       <div class="product-name">${escapeHtml(label.name || 'Product')}</div>
-      <div class="price">PRICE: ৳ ${Number(label.price).toLocaleString('en-US')}</div>
-      <div class="barcode-container">
-        <svg id="barcode-${index}"></svg>
-      </div>
-      <div class="barcode-number">${escapeHtml(label.barcode)}</div>
+      <div class="price">Price: ৳${Number(label.price).toLocaleString('en-US', { maximumFractionDigits: 2 })}</div>
+      <div class="barcode-container">${renderPrintBarcode(label.barcode, label.format || 'CODE128', maxBarcodeWidthMm)}</div>
+      <div class="sku">${escapeHtml(label.barcode)}</div>
     </div>
-  `).join('');
-
-  const barcodeScripts = labels.map((label, index) => `
-    JsBarcode("#barcode-${index}", ${escapeScriptString(label.barcode)}, {
-      format: ${escapeScriptString(label.format || 'CODE128')},
-      width: 1.2,
-      height: 34,
-      displayValue: false,
-      margin: 0,
-      lineColor: "#000000",
-      background: "#ffffff"
-    });
-  `).join('');
+    `).join('');
+  } catch (error) {
+    win.close();
+    throw error;
+  }
 
   win.document.open();
   win.document.write(`
@@ -80,64 +146,62 @@ function printBarcodeLabels(labels: BarcodePrintLabel[], storeName: string): boo
     <html>
       <head>
         <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>Barcode Labels</title>
-        <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
         <style>
-          @page { size: 50mm 30mm; margin: 0; }
+          @page { size: ${labelSize.widthMm}mm ${labelSize.heightMm}mm; margin: 0; }
           * { box-sizing: border-box; }
-          html, body { width: 50mm; margin: 0; padding: 0; background: #fff; }
+          html, body {
+            width: ${labelSize.widthMm}mm; min-width: 0; margin: 0; padding: 0;
+            background: #fff; color: #000;
+          }
           body { font-family: Arial, Helvetica, sans-serif; }
           .label {
-            width: 50mm; height: 30mm; display: flex; flex-direction: column;
-            align-items: center; justify-content: flex-start; text-align: center;
-            padding: 1mm 2mm 0.7mm; margin: 0; overflow: hidden;
-            background: #fff; page-break-after: always; break-after: page;
+            width: ${labelSize.widthMm}mm; height: ${labelSize.heightMm}mm;
+            display: grid;
+            grid-template-rows: 3mm 3mm 3.5mm minmax(0, 1fr) 3mm;
+            row-gap: 0.2mm; align-items: center; justify-items: stretch;
+            padding: ${LABEL_SAFE_PADDING_MM}mm; margin: 0; overflow: hidden;
+            background: #fff; page-break-inside: avoid; break-inside: avoid;
           }
           .store, .product-name, .price {
-            width: 100%; line-height: 1; white-space: nowrap; overflow: hidden;
-            text-overflow: ellipsis; color: #000;
+            width: 100%; line-height: 1; white-space: nowrap;
+            overflow: hidden; text-overflow: ellipsis; color: #000; text-align: center;
           }
-          .store { font-size: 10px; font-weight: 800; margin: 0 0 0.3mm; }
-          .product-name { font-size: 9px; font-weight: 700; margin: 0 0 0.4mm; }
-          .price { font-size: 11px; font-weight: 400; margin: 0 0 0.4mm; }
+          .store { font-size: 8pt; font-weight: 700; }
+          .product-name { font-size: 8pt; font-weight: 600; }
+          .price { font-size: 9pt; font-weight: 700; }
           .barcode-container {
-            width: 45mm; height: 10mm; display: flex; align-items: center;
+            width: 100%; height: 100%; display: flex; align-items: center;
             justify-content: center; overflow: hidden; margin: 0; padding: 0;
           }
           .barcode-container svg {
-            width: auto; height: auto; max-width: 100%; max-height: 9mm;
-            display: block;
+            width: auto; height: auto; max-width: 100%; max-height: 8mm; display: block;
           }
-          .barcode-number {
-            font-size: 10px; font-weight: 600; line-height: 1; margin-top: 0.3mm;
-            color: #000; letter-spacing: 0.5px;
+          .sku {
+            width: 100%; font-size: 8pt; font-weight: 500; line-height: 1;
+            text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
           }
+          .store:empty { visibility: hidden; }
+          .label:not(:last-child) { page-break-after: always; break-after: page; }
           @media print {
-            html, body { width: 50mm; margin: 0; padding: 0; }
+            html, body { width: ${labelSize.widthMm}mm; margin: 0; padding: 0; }
             .label {
-              width: 50mm; height: 30mm; margin: 0; border: none;
-              page-break-after: always; break-after: page;
+              width: ${labelSize.widthMm}mm; height: ${labelSize.heightMm}mm;
+              margin: 0; border: none; print-color-adjust: exact;
+              -webkit-print-color-adjust: exact;
             }
           }
         </style>
       </head>
       <body>
         ${labelMarkup}
-        <script>
-          window.onload = function () {
-            try {
-              ${barcodeScripts}
-              setTimeout(function () { window.focus(); window.print(); }, 500);
-            } catch (error) {
-              console.error('Barcode rendering failed:', error);
-              alert('Unable to generate barcode labels.');
-            }
-          };
-        </script>
       </body>
     </html>
   `);
   win.document.close();
+  win.focus();
+  win.setTimeout(() => win.print(), 250);
   return true;
 }
 
@@ -167,6 +231,8 @@ export default function GenerateBarcodePage() {
   const [barcodeFormat, setBarcodeFormat] = useState('CODE128');
   const [quantity, setQuantity] = useState(1);
   const [storeName, setStoreName] = useState('');
+  const [labelWidthMm, setLabelWidthMm] = useState(DEFAULT_LABEL_WIDTH_MM);
+  const [labelHeightMm, setLabelHeightMm] = useState(DEFAULT_LABEL_HEIGHT_MM);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
@@ -304,26 +370,36 @@ export default function GenerateBarcodePage() {
   const downloadBarcodePNG = () => {
     if (!barcodeValue) return;
     const svg = document.querySelector('#barcode-preview svg') as SVGElement;
-    if (!svg) return;
+    if (!svg) {
+      toast.error('Barcode preview is unavailable');
+      return;
+    }
     const svgData = new XMLSerializer().serializeToString(svg);
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      toast.error('Unable to prepare the barcode image for download');
+      return;
+    }
     const img = new Image();
     img.onload = () => {
-      canvas.width = img.width * 2;
-      canvas.height = img.height * 2;
-      if (ctx) {
+      try {
+        canvas.width = img.width * 2;
+        canvas.height = img.height * 2;
         ctx.scale(2, 2);
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0);
+        const link = document.createElement('a');
+        link.download = `barcode-${selected?.name || barcodeValue}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        toast.success('Barcode downloaded');
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Unable to download the barcode image');
       }
-      const link = document.createElement('a');
-      link.download = `barcode-${selected?.name || barcodeValue}.png`;
-      link.href = canvas.toDataURL('image/png');
-      link.click();
-      toast.success('Barcode downloaded');
     };
+    img.onerror = () => toast.error('Unable to render the barcode image for download');
     img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
   };
 
@@ -333,9 +409,15 @@ export default function GenerateBarcodePage() {
       name: selected.name,
       barcode: barcodeValue,
       format: barcodeFormat,
-      price: selected.discount_price || selected.selling_price || 0,
+      price: selected.discount_price ?? selected.selling_price,
     }));
-    if (!printBarcodeLabels(labels, storeName)) toast.error('Please allow popups to print');
+    try {
+      if (!printBarcodeLabels(labels, storeName, { widthMm: labelWidthMm, heightMm: labelHeightMm })) {
+        toast.error('Please allow popups to print');
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to print barcode labels.');
+    }
   };
 
   const printBulk = () => {
@@ -352,10 +434,14 @@ export default function GenerateBarcodePage() {
       name: product.name,
       barcode: String(product.barcode),
       format: product.barcode_format || 'CODE128',
-      price: product.discount_price || product.selling_price || 0,
+      price: product.discount_price ?? product.selling_price,
     }));
-    if (!printBarcodeLabels(labels, storeName)) {
-      toast.error('Please allow popups to print');
+    try {
+      if (!printBarcodeLabels(labels, storeName, { widthMm: labelWidthMm, heightMm: labelHeightMm })) {
+        toast.error('Please allow popups to print');
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to print barcode labels.');
     }
   };
 
@@ -442,6 +528,32 @@ export default function GenerateBarcodePage() {
 
         {/* Barcode preview & controls */}
         <Card className="p-6">
+          <div className="grid grid-cols-2 gap-3 mb-5">
+            <div className="space-y-2">
+              <Label htmlFor="label-width">Label width (mm)</Label>
+              <Input
+                id="label-width"
+                type="number"
+                min={20}
+                max={100}
+                step={0.5}
+                value={labelWidthMm}
+                onChange={(event) => setLabelWidthMm(Math.max(20, Math.min(100, Number(event.target.value) || DEFAULT_LABEL_WIDTH_MM)))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="label-height">Label height (mm)</Label>
+              <Input
+                id="label-height"
+                type="number"
+                min={20}
+                max={100}
+                step={0.5}
+                value={labelHeightMm}
+                onChange={(event) => setLabelHeightMm(Math.max(20, Math.min(100, Number(event.target.value) || DEFAULT_LABEL_HEIGHT_MM)))}
+              />
+            </div>
+          </div>
           {!bulkMode ? (
             selected ? (
               <div className="space-y-5">
@@ -502,13 +614,31 @@ export default function GenerateBarcodePage() {
                 </div>
 
                 {/* Preview */}
-                <div id="barcode-preview" className="p-6 bg-white rounded-lg border flex flex-col items-center gap-2">
-                  <p className="text-sm font-bold text-slate-900">{storeName}</p>
-                  <p className="text-xs text-slate-700 text-center max-w-[144px]">{selected.name}</p>
-                  <p className="text-sm font-bold text-slate-900"> PRICE: ৳{selected.discount_price || selected.selling_price}</p>
-                  {barcodeValue && <Barcode value={barcodeValue} height={30} fontSize={14} />}
-                  {/* <p className="text-xs text-slate-500">SKU: {selected.sku || 'N/A'}</p> */}
-                  
+                <div
+                  id="barcode-preview"
+                  className="mx-auto grid max-w-full justify-items-stretch gap-[0.2mm] overflow-hidden border bg-white p-[1mm] text-center text-black"
+                  style={{
+                    width: `${labelWidthMm}mm`,
+                    height: `${labelHeightMm}mm`,
+                    gridTemplateRows: '3mm 3mm 3.5mm minmax(0, 1fr) 3mm',
+                  }}
+                >
+                  <p className="w-full truncate text-[8pt] font-bold leading-none">{storeName || '\u00a0'}</p>
+                  <p className="w-full truncate text-[8pt] font-semibold leading-none">{selected.name}</p>
+                  <p className="w-full truncate text-[9pt] font-bold leading-none">Price: ৳{(selected.discount_price ?? selected.selling_price).toLocaleString('en-US', { maximumFractionDigits: 2 })}</p>
+                  {barcodeValue && (
+                    <div className="flex h-full w-full items-center justify-center overflow-hidden">
+                      <Barcode
+                        value={barcodeValue}
+                        format={barcodeFormat}
+                        width={2.1}
+                        height={30}
+                        displayValue={false}
+                        className="block h-auto max-h-[8mm] max-w-full"
+                      />
+                    </div>
+                  )}
+                  <p className="w-full truncate text-[8pt] font-medium leading-none">{barcodeValue}</p>
                 </div>
 
                 {/* Actions */}
