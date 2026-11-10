@@ -29,7 +29,16 @@ export default function AuthCallbackPage() {
 
       const code = callbackUrl.searchParams.get('code');
       if (!code) {
-        setErrorMessage('The confirmation link is missing its authentication code. Request a new confirmation email and try again.');
+        const { data, error } = await supabase.auth.getSession();
+        if (error) {
+          setErrorMessage(error.message);
+          return;
+        }
+        if (!data.session) {
+          setErrorMessage('No active authentication session was found. Please sign in and try again.');
+          return;
+        }
+        router.replace('/login');
         return;
       }
 
@@ -39,12 +48,12 @@ export default function AuthCallbackPage() {
         return;
       }
 
-      toast.success('Email confirmed. You can now sign in.');
+      toast.success('Authentication complete. You can now sign in.');
       router.replace('/login');
     };
 
     void completeAuthentication().catch((error: unknown) => {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to complete email confirmation.');
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to complete authentication.');
     });
   }, [router]);
 
@@ -53,7 +62,7 @@ export default function AuthCallbackPage() {
       <div className="w-full max-w-md space-y-4 text-center">
         {errorMessage ? (
           <>
-            <h1 className="text-2xl font-bold">Confirmation link could not be completed</h1>
+            <h1 className="text-2xl font-bold">Authentication could not be completed</h1>
             <p role="alert" className="text-sm text-destructive">{errorMessage}</p>
             <Button asChild>
               <Link href="/login">Return to sign in</Link>
@@ -61,9 +70,9 @@ export default function AuthCallbackPage() {
           </>
         ) : (
           <>
-            <h1 className="text-2xl font-bold">Confirming your email</h1>
+            <h1 className="text-2xl font-bold">Completing authentication</h1>
             <p className="text-sm text-muted-foreground" role="status">
-              Please wait while we verify your email and return you to sign in.
+              Please wait while we complete your sign-in and return you to the application.
             </p>
           </>
         )}

@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
+import { loadAuthenticatedProfile } from '@/lib/auth-profile';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -39,7 +40,6 @@ export default function RegisterPage() {
         email,
         password,
         options: {
-          emailRedirectTo: new URL('/auth/callback', window.location.origin).toString(),
           data: {
             full_name: name,
             phone,
@@ -58,20 +58,44 @@ export default function RegisterPage() {
         return;
       }
 
-      if (data.session) {
-        if (employeeInviteToken) {
-          toast.success('Employee account created.');
-          router.push('/admin/pos');
-        } else {
-          toast.success('Account created. Your store is awaiting approval.');
-          router.push('/pending-approval');
-        }
-      } else {
-        toast.info(
-          employeeInviteToken
-            ? 'Check your email to confirm your employee account.'
-            : 'Check your email to confirm your account. Your store will be reviewed after confirmation.'
+      if (!data.user || !data.session) {
+        toast.error('Account creation did not start a sign-in session. Please try signing in or contact support.');
+        return;
+      }
+      if (data.session.user.id !== data.user.id) {
+        toast.error('The sign-in session does not match the newly created account. Please contact support.');
+        return;
+      }
+
+      let profile;
+      try {
+        const result = await loadAuthenticatedProfile(data.session.user);
+        profile = result.profile;
+        if (result.warning) console.warn(`[Signup] ${result.warning}`);
+      } catch (profileError) {
+        toast.error(
+          `Account created, but the account profile could not be loaded: ${
+            profileError instanceof Error ? profileError.message : 'Unknown profile lookup error.'
+          }`
         );
+        return;
+      }
+
+      if (profile.status === 'pending') {
+        toast.success('Account created. Your store is awaiting approval.');
+        router.push('/pending-approval');
+      } else if (profile.status === 'rejected') {
+        router.push('/account-rejected');
+      } else if (profile.status === 'suspended') {
+        router.push('/account-suspended');
+      } else if (profile.status === 'approved' && profile.role === 'super_admin') {
+        toast.success('Account created.');
+        router.push('/admin/users');
+      } else if (profile.status === 'approved') {
+        toast.success('Account created.');
+        router.push(profile.role === 'cashier' ? '/admin/pos' : '/admin/dashboard');
+      } else {
+        toast.error('Your account status could not be verified. Please contact support.');
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to create your account.');
