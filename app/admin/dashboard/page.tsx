@@ -86,9 +86,13 @@ export default function DashboardPage() {
 
     let active = true;
     let requestInFlight = false;
+    let refreshAfterCurrentLoad = false;
 
     async function loadDashboard() {
-      if (requestInFlight) return;
+      if (requestInFlight) {
+        refreshAfterCurrentLoad = true;
+        return;
+      }
       requestInFlight = true;
       try {
       const now = new Date();
@@ -118,7 +122,7 @@ export default function DashboardPage() {
         todayProfitRes,
       ] = await Promise.all([
         supabase.from('sales').select('total, sale_date').eq('status', 'completed').gte('sale_date', todayStart).lt('sale_date', tomorrowStart),
-        supabase.from('sales').select('total, due_amount').eq('status', 'completed').eq('payment_status', 'due').gte('sale_date', todayStart).lt('sale_date', tomorrowStart),
+        supabase.from('sales').select('total, due_amount').eq('status', 'completed').gt('due_amount', 0).gte('sale_date', todayStart).lt('sale_date', tomorrowStart),
         supabase.from('expenses').select('amount').eq('date', todayDate),
         supabase.from('purchases').select('total').gte('purchase_date', todayStart).lt('purchase_date', tomorrowStart),
         supabase.from('purchases').select('total, due_amount').eq('payment_status', 'due').gte('purchase_date', todayStart).lt('purchase_date', tomorrowStart),
@@ -183,7 +187,7 @@ export default function DashboardPage() {
       }
 
       const todaySales = sumRows(todaySalesRes, (sale) => sale.total);
-      const todayDueSales = sumRows(todayDueSalesRes, (sale) => sale.due_amount || sale.total);
+      const todayDueSales = sumRows(todayDueSalesRes, (sale) => sale.due_amount);
       const expenses = sumRows(expensesRes, (expense) => expense.amount);
       const income = sumRows(todayCollectionsRes, (payment) => payment.amount);
       const totalPurchases = sumRows(purchasesRes, (purchase) => purchase.total);
@@ -207,8 +211,8 @@ export default function DashboardPage() {
       const netProfit = todayProfitRes.error
         ? null
         : returnReport
-          && income !== null && expenses !== null
-          ? Number(todayProfitRes.data || 0) - Number(returnReport.profit_reversal || 0) + income - expenses
+          && expenses !== null
+          ? Number(todayProfitRes.data || 0) - Number(returnReport.profit_reversal || 0) - expenses
           : null;
 
       const statBoxes: StatBox[] = [
@@ -327,7 +331,13 @@ export default function DashboardPage() {
 
       } finally {
         requestInFlight = false;
-        if (active) setLoading(false);
+        if (active) {
+          setLoading(false);
+          if (refreshAfterCurrentLoad) {
+            refreshAfterCurrentLoad = false;
+            void loadDashboard();
+          }
+        }
       }
     }
     void loadDashboard();
@@ -353,11 +363,14 @@ export default function DashboardPage() {
       'customers',
       'suppliers',
       'categories',
+      'employees',
     ].forEach((table) => {
       channel.on('postgres_changes', { event: '*', schema: 'public', table }, scheduleDashboardRefresh);
     });
     channel.subscribe((status) => {
-      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+      if (status === 'SUBSCRIBED') {
+        scheduleDashboardRefresh();
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
         console.error('[Dashboard] Realtime refresh subscription failed:', status);
       }
     });

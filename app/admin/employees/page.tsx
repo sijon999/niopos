@@ -64,7 +64,13 @@ export default function EmployeesPage() {
       });
       return;
     } else {
-      await supabase.from('employees').insert({ ...payload, status: 'active' });
+      const { error: insertError } = await supabase
+        .from('employees')
+        .insert({ ...payload, status: 'active' });
+      if (insertError) {
+        toast.error(t('common.createFailed'));
+        return;
+      }
       toast.success(t('employees.createSuccess'));
     }
     setDialogOpen(false); setEditing(null); setForm({ name: '', email: '', phone: '', role: 'cashier', salary: '' });

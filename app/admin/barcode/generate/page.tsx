@@ -23,6 +23,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { supabase } from '@/lib/supabase';
 import { Barcode } from '@/components/barcode';
 import JsBarcode from 'jsbarcode';
+import { generateEAN13, getEAN13CheckDigit } from '@/lib/barcode-utils';
 import type { Product } from '@/types';
 import { toast } from 'sonner';
 import { useConfirmation } from '@/hooks/use-confirmation';
@@ -211,15 +212,59 @@ function generateCode128(): string {
   return prefix + random;
 }
 
-function generateEAN13(): string {
-  const prefix = '890';
-  let code = prefix;
-  for (let i = 0; i < 4; i++) code += Math.floor(Math.random() * 6).toString();
-  let sum = 0;
-  for (let i = 0; i < 4; i++) sum += parseInt(code[i]) * (i % 2 === 0 ? 1 : 3);
-  const checksum = (6 - (sum % 6)) % 6;
-  code += checksum.toString();
-  return code;
+function getCheckDigit(body: string, firstWeight: 1 | 3): string {
+  const secondWeight = firstWeight === 1 ? 3 : 1;
+  const sum = Array.from(body).reduce(
+    (total, digit, index) =>
+      total + Number(digit) * (index % 2 === 0 ? firstWeight : secondWeight),
+    0
+  );
+  return String((10 - (sum % 10)) % 10);
+}
+
+function getEAN8CheckDigit(body: string): string {
+  if (!/^\d{7}$/.test(body)) {
+    throw new Error('EAN-8 requires 7 numeric data digits');
+  }
+
+  return getCheckDigit(body, 3);
+}
+
+function getUPCACheckDigit(body: string): string {
+  if (!/^\d{11}$/.test(body)) {
+    throw new Error('UPC-A requires 11 numeric data digits');
+  }
+
+  return getCheckDigit(body, 3);
+}
+
+function generateDigits(length: number): string {
+  return Array.from({ length }, () => Math.floor(Math.random() * 10).toString()).join('');
+}
+
+function generateEAN8(): string {
+  const body = generateDigits(7);
+  return body + getEAN8CheckDigit(body);
+}
+
+function generateUPCA(): string {
+  const body = generateDigits(11);
+  return body + getUPCACheckDigit(body);
+}
+
+function isValidBarcode(value: string, format: string): boolean {
+  switch (format) {
+    case 'CODE128':
+      return value.length > 0;
+    case 'EAN13':
+      return /^\d{13}$/.test(value) && value[12] === getEAN13CheckDigit(value.slice(0, 12));
+    case 'EAN8':
+      return /^\d{8}$/.test(value) && value[7] === getEAN8CheckDigit(value.slice(0, 7));
+    case 'UPC':
+      return /^\d{12}$/.test(value) && value[11] === getUPCACheckDigit(value.slice(0, 11));
+    default:
+      return false;
+  }
 }
 
 export default function GenerateBarcodePage() {
@@ -289,36 +334,49 @@ export default function GenerateBarcodePage() {
   };
 
   const handleGenerateNew = () => {
-    if (barcodeFormat === 'EAN13') {
-      setBarcodeValue(generateEAN13());
-    } else {
-      setBarcodeValue(generateCode128());
+    switch (barcodeFormat) {
+      case 'EAN13':
+        setBarcodeValue(generateEAN13());
+        break;
+      case 'EAN8':
+        setBarcodeValue(generateEAN8());
+        break;
+      case 'UPC':
+        setBarcodeValue(generateUPCA());
+        break;
+      default:
+        setBarcodeValue(generateCode128());
     }
   };
 
   const handleGenerateFromSKU = () => {
-    if (!selected?.sku) {
+    const sku = selected?.sku?.trim();
+    if (!sku) {
       toast.error('This product has no SKU');
       return;
     }
-    const skuNum = selected.sku.replace(/\D/g, '').padStart(8, '0').slice(0, 8);
-    if (skuNum.length >= 8) {
-      let code = skuNum.slice(0, 8);
-      let sum = 0;
-      for (let i = 0; i < 8; i++) sum += parseInt(code[i]) * (i % 2 === 0 ? 1 : 3);
-      const checksum = (10 - (sum % 10)) % 10;
-      code += checksum.toString();
-      setBarcodeValue(code);
+    if (/^\d{12}$/.test(sku)) {
+      setBarcodeValue(sku + getEAN13CheckDigit(sku));
+      setBarcodeFormat('EAN13');
+    } else if (
+      /^\d{13}$/.test(sku) &&
+      sku[12] === getEAN13CheckDigit(sku.slice(0, 12))
+    ) {
+      setBarcodeValue(sku);
       setBarcodeFormat('EAN13');
     } else {
-      setBarcodeValue('SB' + selected.sku.replace(/\s/g, '').toUpperCase().padEnd(6, '0'));
+      setBarcodeValue(sku);
       setBarcodeFormat('CODE128');
     }
   };
 
   const handleSaveBarcode = async () => {
-    if (!selected || !barcodeValue) {
+    if (!selected) {
       toast.error('Select a product and generate a barcode first');
+      return;
+    }
+    if (!isValidBarcode(barcodeValue, barcodeFormat)) {
+      toast.error(`Enter a valid ${barcodeFormat} barcode before saving`);
       return;
     }
     setSaving(true);
@@ -354,7 +412,7 @@ export default function GenerateBarcodePage() {
             product_name: selected.name,
             barcode: barcodeValue,
             barcode_format: barcodeFormat,
-            quantity_printed: quantity,
+            quantity_printed: 0,
             branch: storeName.trim() || 'main',
             generated_by: 'admin',
           });
@@ -368,7 +426,10 @@ export default function GenerateBarcodePage() {
   };
 
   const downloadBarcodePNG = () => {
-    if (!barcodeValue) return;
+    if (!isValidBarcode(barcodeValue, barcodeFormat)) {
+      toast.error(`Enter a valid ${barcodeFormat} barcode before downloading`);
+      return;
+    }
     const svg = document.querySelector('#barcode-preview svg') as SVGElement;
     if (!svg) {
       toast.error('Barcode preview is unavailable');
@@ -403,8 +464,15 @@ export default function GenerateBarcodePage() {
     img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
   };
 
-  const printBarcode = () => {
-    if (!barcodeValue || !selected) return;
+  const printBarcode = async () => {
+    if (!isValidBarcode(barcodeValue, barcodeFormat)) {
+      toast.error(`Enter a valid ${barcodeFormat} barcode before printing`);
+      return;
+    }
+    if (!selected || !Number.isInteger(quantity) || quantity < 1) {
+      toast.error('Select a product and a valid print quantity');
+      return;
+    }
     const labels = Array.from({ length: quantity }, () => ({
       name: selected.name,
       barcode: barcodeValue,
@@ -412,21 +480,47 @@ export default function GenerateBarcodePage() {
       price: selected.discount_price ?? selected.selling_price,
     }));
     try {
-      if (!printBarcodeLabels(labels, storeName, { widthMm: labelWidthMm, heightMm: labelHeightMm })) {
+      const accepted = printBarcodeLabels(
+        labels,
+        storeName,
+        { widthMm: labelWidthMm, heightMm: labelHeightMm }
+      );
+      if (!accepted) {
         toast.error('Please allow popups to print');
+        return;
+      }
+
+      const { error } = await supabase.from('barcode_history').insert({
+        product_id: selected.id,
+        product_name: selected.name,
+        barcode: barcodeValue,
+        barcode_format: barcodeFormat,
+        quantity_printed: quantity,
+        branch: storeName.trim() || 'main',
+        generated_by: 'admin',
+      });
+      if (error) {
+        toast.error(`Print was requested, but history could not be saved: ${error.message}`);
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to print barcode labels.');
     }
   };
 
-  const printBulk = () => {
-    const toPrint = products.filter(
+  const printBulk = async () => {
+  const selectedWithBarcodes = products.filter(
     (p) => selectedProducts.has(p.id) && p.barcode
   );
+  const toPrint = selectedWithBarcodes.filter((product) =>
+    isValidBarcode(String(product.barcode), product.barcode_format || 'CODE128')
+  );
+  const invalidCount = selectedWithBarcodes.length - toPrint.length;
+  if (invalidCount > 0) {
+    toast.error(`${invalidCount} selected product(s) have invalid barcodes and will be skipped`);
+  }
 
   if (toPrint.length === 0) {
-    toast.error('Select products with barcodes');
+    if (invalidCount === 0) toast.error('Select products with barcodes');
     return;
   }
 
@@ -437,8 +531,29 @@ export default function GenerateBarcodePage() {
       price: product.discount_price ?? product.selling_price,
     }));
     try {
-      if (!printBarcodeLabels(labels, storeName, { widthMm: labelWidthMm, heightMm: labelHeightMm })) {
+      const accepted = printBarcodeLabels(
+        labels,
+        storeName,
+        { widthMm: labelWidthMm, heightMm: labelHeightMm }
+      );
+      if (!accepted) {
         toast.error('Please allow popups to print');
+        return;
+      }
+
+      const { error } = await supabase.from('barcode_history').insert(
+        toPrint.map((product) => ({
+          product_id: product.id,
+          product_name: product.name,
+          barcode: String(product.barcode),
+          barcode_format: product.barcode_format || 'CODE128',
+          quantity_printed: 1,
+          branch: storeName.trim() || 'main',
+          generated_by: 'admin',
+        }))
+      );
+      if (error) {
+        toast.error(`Print was requested, but history could not be saved: ${error.message}`);
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to print barcode labels.');
@@ -577,7 +692,15 @@ export default function GenerateBarcodePage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label>Barcode Format</Label>
-                    <select value={barcodeFormat} onChange={(e) => setBarcodeFormat(e.target.value)} className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
+                    <select
+                      value={barcodeFormat}
+                      onChange={(e) => {
+                        const nextFormat = e.target.value;
+                        if (!isValidBarcode(barcodeValue, nextFormat)) setBarcodeValue('');
+                        setBarcodeFormat(nextFormat);
+                      }}
+                      className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                    >
                       <option value="CODE128">Code 128</option>
                       <option value="EAN13">EAN-13</option>
                       <option value="EAN8">EAN-8</option>
@@ -626,7 +749,7 @@ export default function GenerateBarcodePage() {
                   <p className="w-full truncate text-[8pt] font-bold leading-none">{storeName || '\u00a0'}</p>
                   <p className="w-full truncate text-[8pt] font-semibold leading-none">{selected.name}</p>
                   <p className="w-full truncate text-[9pt] font-bold leading-none">Price: ৳{(selected.discount_price ?? selected.selling_price).toLocaleString('en-US', { maximumFractionDigits: 2 })}</p>
-                  {barcodeValue && (
+                  {barcodeValue && isValidBarcode(barcodeValue, barcodeFormat) && (
                     <div className="flex h-full w-full items-center justify-center overflow-hidden">
                       <Barcode
                         value={barcodeValue}
@@ -637,6 +760,11 @@ export default function GenerateBarcodePage() {
                         className="block h-auto max-h-[8mm] max-w-full"
                       />
                     </div>
+                  )}
+                  {barcodeValue && !isValidBarcode(barcodeValue, barcodeFormat) && (
+                    <p role="alert" className="self-center text-xs text-destructive">
+                      Enter a valid {barcodeFormat} barcode or use Auto.
+                    </p>
                   )}
                   <p className="w-full truncate text-[8pt] font-medium leading-none">{barcodeValue}</p>
                 </div>

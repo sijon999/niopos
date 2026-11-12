@@ -57,7 +57,13 @@ export default function SuppliersPage() {
       });
       return;
     } else {
-      await supabase.from('suppliers').insert({ ...form, status: 'active', balance: 0 });
+      const { error: insertError } = await supabase
+        .from('suppliers')
+        .insert({ ...form, status: 'active', balance: 0 });
+      if (insertError) {
+        toast.error(t('common.createFailed'));
+        return;
+      }
       toast.success(t('suppliers.createSuccess'));
     }
     setDialogOpen(false); setEditing(null); setForm({ name: '', contact_person: '', email: '', phone: '', address: '', city: '', country: '' });

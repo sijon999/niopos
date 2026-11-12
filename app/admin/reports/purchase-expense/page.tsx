@@ -32,6 +32,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { supabase } from '@/lib/supabase';
+import { escapeCsvCell } from '@/lib/safe-export';
+import { fetchAllPages } from '@/lib/supabase-pagination';
 import { toast } from 'sonner';
 
 type TransactionType = 'all' | 'purchase' | 'expense';
@@ -301,7 +303,9 @@ export default function PurchaseExpenseReportPage() {
     let query = supabase
       .from('purchase_expense_report')
       .select('*', { count: 'exact' })
-      .order('transaction_date', { ascending: false });
+      .order('transaction_date', { ascending: false })
+      .order('transaction_type', { ascending: true })
+      .order('id', { ascending: true });
 
     if (applied.from) query = query.gte('transaction_date', localBoundary(applied.from, false));
     if (applied.to) query = query.lte('transaction_date', localBoundary(applied.to, true));
@@ -514,7 +518,7 @@ export default function PurchaseExpenseReportPage() {
       const value = safeSearch(applied.search);
       query = query.or(`party_name.ilike.%${value}%,party_phone.ilike.%${value}%,reference_no.ilike.%${value}%,category_name.ilike.%${value}%`);
     }
-    const { data, error } = await query.limit(10000);
+    const { data, error } = await fetchAllPages((from, to) => query.range(from, to));
     if (error) {
       toast.error('Could not export transactions');
       setExporting(false);
@@ -533,8 +537,10 @@ export default function PurchaseExpenseReportPage() {
       Number(row.amount).toFixed(2),
       row.status || '',
     ]);
-    const csv = [headers, ...csvRows].map((line) => line.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+    const csv = [headers, ...csvRows]
+      .map((row) => row.map(escapeCsvCell).join(','))
+      .join('\r\n');
+    const url = URL.createObjectURL(new Blob(['\ufeff', csv], { type: 'text/csv;charset=utf-8;' }));
     const link = document.createElement('a');
     link.href = url;
     link.download = `purchase-expense-report-${toDateInputValue(new Date())}.csv`;

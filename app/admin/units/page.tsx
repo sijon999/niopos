@@ -15,6 +15,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
+import { escapeCsvCell, escapeHtml } from '@/lib/safe-export';
 import type { Unit } from '@/types';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/use-translation';
@@ -120,8 +121,8 @@ export default function UnitsPage() {
   const exportCSV = () => {
     const headers = [t('common.name'), t('units.shortName'), t('common.description'), t('common.status')];
     const rows = filtered.map((u) => [u.name, u.short_name, u.description || '', t(u.status === 'active' ? 'common.active' : 'common.inactive')]);
-    const csv = [headers, ...rows].map((r) => r.map((c) => `"${c}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
+    const csv = [headers, ...rows].map((row) => row.map(escapeCsvCell).join(',')).join('\r\n');
+    const blob = new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = 'units.csv';
@@ -132,7 +133,8 @@ export default function UnitsPage() {
   const printUnits = () => {
     const win = window.open('', '_blank', 'width=800,height=600');
     if (!win) { toast.error(t('common.allowPopups')); return; }
-    win.document.write(`<html lang="${locale}"><head><title>${t('units.title')}</title><style>body{font-family:${locale === 'bn' ? "'Noto Sans Bengali',sans-serif" : 'sans-serif'};padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}</style></head><body><h2>${t('units.title')}</h2><table><tr><th>${t('common.name')}</th><th>${t('units.shortName')}</th><th>${t('common.description')}</th><th>${t('common.status')}</th></tr>${filtered.map((u) => `<tr><td>${u.name}</td><td>${u.short_name}</td><td>${u.description || ''}</td><td>${t(u.status === 'active' ? 'common.active' : 'common.inactive')}</td></tr>`).join('')}</table></body></html>`);
+    const headers = [t('common.name'), t('units.shortName'), t('common.description'), t('common.status')];
+    win.document.write(`<html lang="${locale}"><head><meta charset="utf-8"><title>${escapeHtml(t('units.title'))}</title><style>body{font-family:${locale === 'bn' ? "'Noto Sans Bengali',sans-serif" : 'sans-serif'};padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}</style></head><body><h2>${escapeHtml(t('units.title'))}</h2><table><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr>${filtered.map((unit) => `<tr><td>${escapeHtml(unit.name)}</td><td>${escapeHtml(unit.short_name)}</td><td>${escapeHtml(unit.description)}</td><td>${escapeHtml(t(unit.status === 'active' ? 'common.active' : 'common.inactive'))}</td></tr>`).join('')}</table></body></html>`);
     win.document.close();
     win.print();
   };

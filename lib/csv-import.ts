@@ -1,5 +1,6 @@
 import type { Category, Brand, Unit } from '@/types';
 import { isValidProductName } from '@/lib/product-name';
+import { escapeCsvCell } from '@/lib/safe-export';
 
 export type ImportField =
   | 'name' | 'product_code' | 'barcode' | 'sku' | 'product_type'
@@ -71,6 +72,52 @@ export type ImportProgress = {
   skipped: number;
   failed: number;
 };
+
+export class CsvEncodingError extends Error {
+  constructor() {
+    super('Unsupported or malformed CSV encoding');
+    this.name = 'CsvEncodingError';
+  }
+}
+
+export function decodeCSVBuffer(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let encoding: 'utf-8' | 'utf-16le' | 'utf-16be' = 'utf-8';
+  let start = 0;
+
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    start = 3;
+  } else if (bytes[0] === 0xff && bytes[1] === 0xfe) {
+    encoding = 'utf-16le';
+    start = 2;
+  } else if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+    encoding = 'utf-16be';
+    start = 2;
+  } else {
+    const sampleLength = Math.min(bytes.length, 4096);
+    let evenNulls = 0;
+    let oddNulls = 0;
+    for (let index = 0; index < sampleLength; index += 1) {
+      if (bytes[index] === 0) {
+        if (index % 2 === 0) evenNulls += 1;
+        else oddNulls += 1;
+      }
+    }
+    const minimumNulls = Math.max(2, Math.floor(sampleLength / 8));
+    if (oddNulls >= minimumNulls && evenNulls === 0) encoding = 'utf-16le';
+    else if (evenNulls >= minimumNulls && oddNulls === 0) encoding = 'utf-16be';
+  }
+
+  let text: string;
+  try {
+    text = new TextDecoder(encoding, { fatal: true }).decode(bytes.subarray(start));
+  } catch {
+    throw new CsvEncodingError();
+  }
+
+  if (text.includes('\0')) throw new CsvEncodingError();
+  return text;
+}
 
 export function parseCSV(text: string): { headers: string[]; rows: string[][] } {
   const cleaned = text.replace(/^\uFEFF/, '');
@@ -307,11 +354,11 @@ export function generateTemplateCSV(labels?: string[]): string {
   const headers = labels || FIELD_DEFINITIONS.map((f) => f.label);
   const sampleRow = [
     'T-Shirt', 'TS001', '8901234500011', 'SKU-TS001', 'simple',
-    'Gucci', 'T-Shirt', 'Pc(s)', '300', '500', '450', '', '20', '5', 'Premium cotton t-shirt', 'active',
-    '', '', '', '0',
+    'Gucci', 'T-Shirt', 'Pc(s)', '300', '500', '450', '', '20', '5', '0', '',
+    '', '', 'Premium cotton t-shirt', 'active',
   ];
   const lines = [headers, sampleRow];
-  return '\uFEFF' + lines.map((r) => r.map((c) => `"${c}"`).join(',')).join('\r\n');
+  return '\uFEFF' + lines.map((row) => row.map(escapeCsvCell).join(',')).join('\r\n');
 }
 
 export function generateErrorReportCSV(
@@ -328,7 +375,7 @@ export function generateErrorReportCSV(
     lines.push([String(d.row), d.name, d.code, 'Duplicate', d.reason]);
   }
 
-  return '\uFEFF' + lines.map((r) => r.map((c) => `"${c}"`).join(',')).join('\r\n');
+  return '\uFEFF' + lines.map((row) => row.map(escapeCsvCell).join(',')).join('\r\n');
 }
 
 export type ResolvedRefs = {

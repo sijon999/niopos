@@ -47,6 +47,7 @@ import {
 } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/lib/supabase';
+import { escapeCsvCell, escapeHtml } from '@/lib/safe-export';
 import { useAuth } from '@/components/providers';
 import { useTranslation } from '@/hooks/use-translation';
 import { toast } from 'sonner';
@@ -455,53 +456,24 @@ export default function StockReconciliationPage() {
       action: async () => {
         setAdjustmentSaving(true);
         try {
-          const newQty = Number(recon.physical_quantity);
-          const diff = newQty - currentStock;
+          const adjustedBy =
+            (typeof user?.user_metadata?.full_name === 'string' &&
+              user.user_metadata.full_name) ||
+            user?.email ||
+            'Unknown';
 
-      // Update product stock
-      const { error: updateError } = await supabase
-        .from('products')
-        .update({ stock: newQty, updated_at: new Date().toISOString() })
-        .eq('id', adjustmentProduct.id);
+          const { error } = await supabase.rpc(
+            'apply_stock_reconciliation_adjustment',
+            {
+              p_reconciliation_id: recon.id,
+              p_expected_current_stock: currentStock,
+              p_adjusted_by: adjustedBy,
+            }
+          );
+          if (error) throw error;
 
-      if (updateError) throw updateError;
-
-      // Create stock movement record
-      const { error: movementError } = await supabase.from('stock_movements').insert({
-        product_id: adjustmentProduct.id,
-        type: 'adjustment',
-        quantity: Math.abs(diff),
-        reference: `Reconciliation: ${recon.id}`,
-        note: `Stock adjustment from reconciliation. Reason: ${recon.reason || 'N/A'}`,
-      });
-          if (movementError) throw movementError;
-
-      // Create stock adjustment record
-      const { error: adjustmentError } = await supabase.from('stock_adjustments').insert({
-        product_id: adjustmentProduct.id,
-        reconciliation_id: recon.id,
-        previous_quantity: currentStock,
-        new_quantity: newQty,
-        difference: diff,
-        reason: recon.reason,
-        reason_details: recon.reason_details,
-        adjusted_by: (typeof user?.user_metadata?.full_name === 'string' && user.user_metadata.full_name) || user?.email || 'Unknown',
-      });
-          if (adjustmentError) throw adjustmentError;
-
-      // Mark reconciliation as adjusted
-      const { error: reconciliationError } = await supabase
-        .from('stock_reconciliations')
-        .update({
-          adjustment_applied: true,
-          adjustment_applied_at: new Date().toISOString(),
-          adjustment_applied_by: (typeof user?.user_metadata?.full_name === 'string' && user.user_metadata.full_name) || user?.email || 'Unknown',
-        })
-        .eq('id', recon.id);
-          if (reconciliationError) throw reconciliationError;
-
-      setAdjustmentProduct(null);
-      await loadData();
+          setAdjustmentProduct(null);
+          await loadData();
         } finally {
           setAdjustmentSaving(false);
         }
@@ -540,8 +512,8 @@ export default function StockReconciliationPage() {
       ];
     });
     const csv = [headers, ...rows]
-      .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
-      .join('\n');
+      .map((row) => row.map(escapeCsvCell).join(','))
+      .join('\r\n');
     const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -561,29 +533,29 @@ export default function StockReconciliationPage() {
         const status = getReconStatus(p);
         const statusText = t(`reconciliation.${status === 'NOT_CHECKED' ? 'notCheckedStatus' : status === 'CHECKED' ? 'checkedStatus' : 'differenceFoundStatus'}`);
         return `<tr>
-          <td>${p.name}</td>
-          <td>${p.product_code || ''}</td>
-          <td>${p.barcode || ''}</td>
-          <td>${p.stock}</td>
-          <td>${recon?.physical_quantity != null ? recon.physical_quantity : ''}</td>
-          <td>${recon ? recon.difference : ''}</td>
-          <td>${statusText}</td>
-          <td>${recon?.checked_at ? new Date(recon.checked_at).toLocaleString() : t('reconciliation.never')}</td>
-          <td>${recon?.checked_by || ''}</td>
+          <td>${escapeHtml(p.name)}</td>
+          <td>${escapeHtml(p.product_code)}</td>
+          <td>${escapeHtml(p.barcode)}</td>
+          <td>${escapeHtml(p.stock)}</td>
+          <td>${escapeHtml(recon?.physical_quantity)}</td>
+          <td>${escapeHtml(recon?.difference)}</td>
+          <td>${escapeHtml(statusText)}</td>
+          <td>${escapeHtml(recon?.checked_at ? new Date(recon.checked_at).toLocaleString() : t('reconciliation.never'))}</td>
+          <td>${escapeHtml(recon?.checked_by)}</td>
         </tr>`;
       })
       .join('');
     printWindow.document.write(`
-      <html><head><title>${t('reconciliation.title')}</title>
+      <html><head><meta charset="utf-8"><title>${escapeHtml(t('reconciliation.title'))}</title>
       <style>body{font-family:sans-serif} table{width:100%;border-collapse:collapse} th,td{border:1px solid #ddd;padding:8px;text-align:left} th{background:#f5f5f5} h1{margin-bottom:5px}</style>
       </head><body>
-      <h1>${t('reconciliation.title')}</h1>
-      <p>${t('reconciliation.subtitle')}</p>
-      <p>${new Date().toLocaleString()}</p>
+      <h1>${escapeHtml(t('reconciliation.title'))}</h1>
+      <p>${escapeHtml(t('reconciliation.subtitle'))}</p>
+      <p>${escapeHtml(new Date().toLocaleString())}</p>
       <table><thead><tr>
-        <th>${t('products.productName')}</th><th>${t('reconciliation.productCode')}</th><th>${t('products.barcode')}</th>
-        <th>${t('reconciliation.softwareStock')}</th><th>${t('reconciliation.physicalStock')}</th><th>${t('reconciliation.difference')}</th>
-        <th>${t('common.status')}</th><th>${t('reconciliation.lastChecked')}</th><th>${t('reconciliation.checkedBy')}</th>
+        <th>${escapeHtml(t('products.productName'))}</th><th>${escapeHtml(t('reconciliation.productCode'))}</th><th>${escapeHtml(t('products.barcode'))}</th>
+        <th>${escapeHtml(t('reconciliation.softwareStock'))}</th><th>${escapeHtml(t('reconciliation.physicalStock'))}</th><th>${escapeHtml(t('reconciliation.difference'))}</th>
+        <th>${escapeHtml(t('common.status'))}</th><th>${escapeHtml(t('reconciliation.lastChecked'))}</th><th>${escapeHtml(t('reconciliation.checkedBy'))}</th>
       </tr></thead><tbody>${rows}</tbody></table>
       </body></html>`);
     printWindow.document.close();

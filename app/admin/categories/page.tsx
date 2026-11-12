@@ -15,6 +15,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
+import { escapeCsvCell, escapeHtml } from '@/lib/safe-export';
 import type { Category } from '@/types';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/use-translation';
@@ -152,8 +153,8 @@ export default function CategoriesPage() {
   const exportCSV = () => {
     const headers = [t('categories.categoryName'), t('common.description'), t('common.status'), t('common.date')];
     const rows = filtered.map((c) => [c.name, c.description || '', t(c.status === 'active' ? 'common.active' : 'common.inactive'), new Date(c.created_at).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-US')]);
-    const csv = [headers, ...rows].map((r) => r.map((v) => `"${v}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
+    const csv = [headers, ...rows].map((row) => row.map(escapeCsvCell).join(',')).join('\r\n');
+    const blob = new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = 'categories.csv';
@@ -164,7 +165,8 @@ export default function CategoriesPage() {
   const printCategories = () => {
     const win = window.open('', '_blank', 'width=800,height=600');
     if (!win) { toast.error(t('common.allowPopups')); return; }
-    win.document.write(`<html lang="${locale}"><head><title>${t('categories.title')}</title><style>body{font-family:${locale === 'bn' ? "'Noto Sans Bengali',sans-serif" : 'sans-serif'};padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}</style></head><body><h2>${t('categories.title')}</h2><table><tr><th>${t('categories.serial')}</th><th>${t('categories.categoryName')}</th><th>${t('common.description')}</th><th>${t('common.date')}</th></tr>${filtered.map((c, i) => `<tr><td>${i + 1}</td><td>${c.name}</td><td>${c.description || ''}</td><td>${new Date(c.created_at).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-US')}</td></tr>`).join('')}</table></body></html>`);
+    const headers = [t('categories.serial'), t('categories.categoryName'), t('common.description'), t('common.date')];
+    win.document.write(`<html lang="${locale}"><head><meta charset="utf-8"><title>${escapeHtml(t('categories.title'))}</title><style>body{font-family:${locale === 'bn' ? "'Noto Sans Bengali',sans-serif" : 'sans-serif'};padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}</style></head><body><h2>${escapeHtml(t('categories.title'))}</h2><table><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr>${filtered.map((category, index) => `<tr><td>${index + 1}</td><td>${escapeHtml(category.name)}</td><td>${escapeHtml(category.description)}</td><td>${escapeHtml(new Date(category.created_at).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-US'))}</td></tr>`).join('')}</table></body></html>`);
     win.document.close();
     win.print();
   };

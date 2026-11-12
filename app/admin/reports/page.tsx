@@ -24,6 +24,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
+import { fetchAllPages } from '@/lib/supabase-pagination';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/use-translation';
 
@@ -194,7 +195,7 @@ export default function ReportsPage() {
 
   const loadReports = useCallback(async () => {
     setLoading(true);
-    let salesQuery = supabase.from('sales').select('*, customers(name)').order('sale_date', { ascending: false });
+    let salesQuery = supabase.from('sales').select('*, customers(name)').order('sale_date', { ascending: false }).order('id', { ascending: true });
     if (appliedFilters.dateFrom) salesQuery = salesQuery.gte('sale_date', localBoundary(appliedFilters.dateFrom, false));
     if (appliedFilters.dateTo) salesQuery = salesQuery.lte('sale_date', localBoundary(appliedFilters.dateTo, true));
     if (appliedFilters.paymentMethod !== 'all') salesQuery = salesQuery.eq('payment_method', appliedFilters.paymentMethod);
@@ -203,7 +204,7 @@ export default function ReportsPage() {
     if (appliedFilters.minAmount) salesQuery = salesQuery.gte('total', Number(appliedFilters.minAmount));
     if (appliedFilters.maxAmount) salesQuery = salesQuery.lte('total', Number(appliedFilters.maxAmount));
 
-    let purchaseQuery = supabase.from('purchases').select('*, suppliers(name)').order('purchase_date', { ascending: false });
+    let purchaseQuery = supabase.from('purchases').select('*, suppliers(name)').order('purchase_date', { ascending: false }).order('id', { ascending: true });
     if (appliedFilters.dateFrom) purchaseQuery = purchaseQuery.gte('purchase_date', localBoundary(appliedFilters.dateFrom, false));
     if (appliedFilters.dateTo) purchaseQuery = purchaseQuery.lte('purchase_date', localBoundary(appliedFilters.dateTo, true));
 
@@ -212,12 +213,12 @@ export default function ReportsPage() {
       appliedFilters.units.length > 0;
     let matchingProductIds: string[] | null = null;
     if (hasProductConstraints) {
-      let productsQuery = supabase.from('products').select('id');
+      let productsQuery = supabase.from('products').select('id').order('id', { ascending: true });
       if (appliedFilters.productIds.length) productsQuery = productsQuery.in('id', appliedFilters.productIds);
       if (appliedFilters.categoryIds.length) productsQuery = productsQuery.in('category_id', appliedFilters.categoryIds);
       if (appliedFilters.brandIds.length) productsQuery = productsQuery.in('brand_id', appliedFilters.brandIds);
       if (appliedFilters.units.length) productsQuery = productsQuery.in('unit', appliedFilters.units);
-      const productsResult = await productsQuery;
+      const productsResult = await fetchAllPages((from, to) => productsQuery.range(from, to));
       if (productsResult.error) {
         toast.error(`Unable to filter report products: ${productsResult.error.message}`);
         setLoading(false);
@@ -225,9 +226,14 @@ export default function ReportsPage() {
       }
       matchingProductIds = (productsResult.data || []).map((product) => product.id);
       if (matchingProductIds.length) {
-        const saleItemsResult = await supabase.from('sale_items')
-          .select('sale_id')
-          .in('product_id', matchingProductIds);
+        const saleItemsResult = await fetchAllPages((from, to) =>
+          supabase.from('sale_items')
+            .select('sale_id')
+            .in('product_id', matchingProductIds ?? [])
+            .order('sale_id', { ascending: true })
+            .order('id', { ascending: true })
+            .range(from, to)
+        );
         if (saleItemsResult.error) {
           toast.error(`Unable to filter report sales: ${saleItemsResult.error.message}`);
           setLoading(false);
@@ -242,8 +248,8 @@ export default function ReportsPage() {
     const [salesRes, purchaseRes, profitRes, returnsRes] = await Promise.all([
       matchingProductIds?.length === 0
         ? Promise.resolve({ data: [], error: null })
-        : salesQuery,
-      purchaseQuery,
+        : fetchAllPages((from, to) => salesQuery.range(from, to)),
+      fetchAllPages((from, to) => purchaseQuery.range(from, to)),
       supabase.rpc('get_sales_profit_summary', {
         p_date_from: appliedFilters.dateFrom ? localBoundary(appliedFilters.dateFrom, false) : null,
         p_date_to: appliedFilters.dateTo ? localBoundary(appliedFilters.dateTo, true) : null,

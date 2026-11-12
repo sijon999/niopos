@@ -16,6 +16,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
+import { escapeCsvCell, escapeHtml } from '@/lib/safe-export';
 import type { Brand } from '@/types';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/use-translation';
@@ -147,8 +148,8 @@ export default function BrandsPage() {
   const exportCSV = () => {
     const headers = [t('brands.brandName'), t('common.description'), t('common.status'), t('common.date')];
     const rows = filtered.map((b) => [b.name, b.description || '', t(b.status === 'active' ? 'common.active' : 'common.inactive'), new Date(b.created_at).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-US')]);
-    const csv = [headers, ...rows].map((r) => r.map((v) => `"${v}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
+    const csv = [headers, ...rows].map((row) => row.map(escapeCsvCell).join(',')).join('\r\n');
+    const blob = new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = 'brands.csv';
@@ -159,7 +160,8 @@ export default function BrandsPage() {
   const printBrands = () => {
     const win = window.open('', '_blank', 'width=800,height=600');
     if (!win) { toast.error(t('common.allowPopups')); return; }
-    win.document.write(`<html lang="${locale}"><head><title>${t('brands.title')}</title><style>body{font-family:${locale === 'bn' ? "'Noto Sans Bengali',sans-serif" : 'sans-serif'};padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}</style></head><body><h2>${t('brands.title')}</h2><table><tr><th>${t('brands.serial')}</th><th>${t('brands.brandName')}</th><th>${t('common.description')}</th><th>${t('common.date')}</th></tr>${filtered.map((b, i) => `<tr><td>${i + 1}</td><td>${b.name}</td><td>${b.description || ''}</td><td>${new Date(b.created_at).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-US')}</td></tr>`).join('')}</table></body></html>`);
+    const headers = [t('brands.serial'), t('brands.brandName'), t('common.description'), t('common.date')];
+    win.document.write(`<html lang="${locale}"><head><meta charset="utf-8"><title>${escapeHtml(t('brands.title'))}</title><style>body{font-family:${locale === 'bn' ? "'Noto Sans Bengali',sans-serif" : 'sans-serif'};padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}</style></head><body><h2>${escapeHtml(t('brands.title'))}</h2><table><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr>${filtered.map((brand, index) => `<tr><td>${index + 1}</td><td>${escapeHtml(brand.name)}</td><td>${escapeHtml(brand.description)}</td><td>${escapeHtml(new Date(brand.created_at).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-US'))}</td></tr>`).join('')}</table></body></html>`);
     win.document.close();
     win.print();
   };

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import JsBarcode from 'jsbarcode';
 
 type BarcodeProps = {
@@ -22,18 +22,25 @@ export function Barcode({
   fontSize = 14,
   className,
 }: BarcodeProps) {
-  const ref = useRef<SVGSVGElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
 
-  useEffect(() => {
-    if (!ref.current || !value) return;
+  useLayoutEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    svg.removeAttribute('width');
+    svg.removeAttribute('height');
+    if (!value) return;
+
     try {
-      JsBarcode(ref.current, value, {
+      JsBarcode(svg, value, {
         format,
         width,
         height,
         displayValue,
         fontSize: displayValue ? fontSize : 0,
-        textMargin: displayValue ? undefined : 0,
+        textMargin: displayValue ? 2 : 0,
         margin: 4,
         background: '#ffffff',
       });
@@ -44,5 +51,5 @@ export function Barcode({
 
   if (!value) return null;
 
-  return <svg ref={ref} className={className} />;
+  return <svg ref={svgRef} className={className} />;
 }

@@ -24,6 +24,8 @@ import {
 } from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
 import { isValidProductName } from '@/lib/product-name';
+import { generateEAN13 } from '@/lib/barcode-utils';
+import { escapeCsvCell, escapeHtml, safeSpreadsheetText } from '@/lib/safe-export';
 import type { Product, Category, Brand, Unit, ProductVariant } from '@/types';
 import { toast } from 'sonner';
 import { Barcode } from '@/components/barcode';
@@ -34,9 +36,7 @@ import { useConfirmation } from '@/hooks/use-confirmation';
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 function generateBarcode(): string {
-  const prefix = '890';
-  const random = Math.floor(Math.random() * 10000000000).toString().padStart(10, '0');
-  return prefix + random.slice(0, 10);
+  return generateEAN13();
 }
 function generateProductCode(): string {
   return Math.floor(1000 + Math.random() * 9000).toString();
@@ -396,10 +396,10 @@ export default function ProductsPage() {
       p.name, p.product_code || '', p.sku || '', p.barcode || '',
       p.product_type || 'simple', p.brands?.name || '', p.categories?.name || '',
       `${p.stock} ${p.unit}`, `${p.min_stock} ${p.unit}`,
-      String(p.cost_price), String(p.selling_price),
+      p.cost_price, p.selling_price,
     ]);
-    const csv = [headers, ...rows].map((r) => r.map((c) => `"${c}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
+    const csv = [headers, ...rows].map((row) => row.map(escapeCsvCell).join(',')).join('\r\n');
+    const blob = new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = 'products.csv';
@@ -413,9 +413,11 @@ export default function ProductsPage() {
       p.name, p.product_code || '', p.sku || '', p.barcode || '',
       p.product_type || 'simple', p.brands?.name || '', p.categories?.name || '',
       `${p.stock} ${p.unit}`, `${p.min_stock} ${p.unit}`,
-      String(p.cost_price), String(p.selling_price),
+      p.cost_price, p.selling_price,
     ]);
-    const html = `<table><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr>${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</table>`;
+    const html = `<table><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr>${rows
+      .map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(typeof cell === 'string' ? safeSpreadsheetText(cell) : cell)}</td>`).join('')}</tr>`)
+      .join('')}</table>`;
     const blob = new Blob([`<html><head><meta charset="utf-8"></head><body>${html}</body></html>`], { type: 'application/vnd.ms-excel' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
@@ -427,7 +429,9 @@ export default function ProductsPage() {
   const copyTable = () => {
     const headers = [t('common.name'), t('products.productCode'), t('products.type'), t('products.brand'), t('products.category'), t('common.quantity'), t('products.alertLimit')];
     const rows = filtered.map((p) => [p.name, p.product_code || '', p.product_type || 'simple', p.brands?.name || '', p.categories?.name || '', `${p.stock} ${p.unit}`, `${p.min_stock} ${p.unit}`]);
-    const text = [headers.join('\t'), ...rows.map((r) => r.join('\t'))].join('\n');
+    const text = [headers, ...rows]
+      .map((row) => row.map(safeSpreadsheetText).join('\t'))
+      .join('\n');
     navigator.clipboard.writeText(text);
     toast.success(t('products.tableCopied'));
   };
@@ -436,7 +440,17 @@ export default function ProductsPage() {
     const win = window.open('', '_blank', 'width=1000,height=700');
     if (!win) { toast.error(t('common.allowPopups')); return; }
     const headers = [t('products.serial'), t('common.name'), t('products.productCode'), t('products.type'), t('products.brand'), t('products.category'), t('common.quantity'), t('products.alertLimit')];
-    win.document.write(`<html lang="${locale}"><head><title>${t('products.title')}</title><style>body{font-family:${locale === 'bn' ? "'Noto Sans Bengali',sans-serif" : 'sans-serif'};padding:20px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #ddd;padding:6px;text-align:left}th{background:#f5f5f5}</style></head><body><h2>${t('products.title')}</h2><table><tr>${headers.map((header) => `<th>${header}</th>`).join('')}</tr>${filtered.map((p, i) => `<tr><td>${i + 1}</td><td>${p.name}</td><td>${p.product_code || ''}</td><td>${p.product_type || 'simple'}</td><td>${p.brands?.name || ''}</td><td>${p.categories?.name || ''}</td><td>${p.stock} ${p.unit}</td><td>${p.min_stock} ${p.unit}</td></tr>`).join('')}</table></body></html>`);
+    const printCell = (value: unknown) => `<td>${escapeHtml(value)}</td>`;
+    win.document.write(`<html lang="${locale}"><head><meta charset="utf-8"><title>${escapeHtml(t('products.title'))}</title><style>body{font-family:${locale === 'bn' ? "'Noto Sans Bengali',sans-serif" : 'sans-serif'};padding:20px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #ddd;padding:6px;text-align:left}th{background:#f5f5f5}</style></head><body><h2>${escapeHtml(t('products.title'))}</h2><table><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr>${filtered.map((p, i) => `<tr>${[
+      i + 1,
+      p.name,
+      p.product_code || '',
+      p.product_type || 'simple',
+      p.brands?.name || '',
+      p.categories?.name || '',
+      `${p.stock} ${p.unit}`,
+      `${p.min_stock} ${p.unit}`,
+    ].map(printCell).join('')}</tr>`).join('')}</table></body></html>`);
     win.document.close();
     win.print();
   };
@@ -478,8 +492,8 @@ export default function ProductsPage() {
       const selected = filtered.filter((p) => selectedIds.has(p.id));
       const headers = [t('common.name'), t('products.productCode'), t('products.sku'), t('products.barcode'), t('products.brand'), t('products.category'), t('common.quantity')];
       const rows = selected.map((p) => [p.name, p.product_code || '', p.sku || '', p.barcode || '', p.brands?.name || '', p.categories?.name || '', `${p.stock} ${p.unit}`]);
-      const csv = [headers, ...rows].map((r) => r.map((c) => `"${c}"`).join(',')).join('\n');
-      const blob = new Blob([csv], { type: 'text/csv' });
+      const csv = [headers, ...rows].map((row) => row.map(escapeCsvCell).join(',')).join('\r\n');
+      const blob = new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
       link.download = 'selected-products.csv';

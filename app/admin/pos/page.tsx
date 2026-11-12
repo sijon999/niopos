@@ -910,7 +910,7 @@ export default function POSPage() {
                   const ld = calcLineDiscount(item);
                   const lt = calcLineTotal(item);
                   return (
-                  <div key={item.product_id} className="py-0.5">
+                  <div key={item.id} className="py-0.5">
                     <div className="flex justify-between text-sm">
                       <span>{item.quantity}x {item.name}</span>
                       <span>{currencySymbol}{(item.price * item.quantity).toFixed(2)}</span>

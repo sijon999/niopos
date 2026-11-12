@@ -288,10 +288,11 @@
   },
   "csvImport": {
     "title": "Import Products from CSV",
-    "instructions": "Upload a UTF-8 encoded CSV file containing your product information. Bangla and English names are supported; make sure the column names match the template.",
+    "instructions": "Upload a UTF-8 or UTF-16 encoded CSV file containing your product information. Bangla and English names are supported; make sure the column names match the template.",
     "selectCsv": "Please select a CSV file",
     "fileTooLarge": "File too large (maximum 10 MB)",
     "readFailed": "Could not read the file",
+    "invalidEncoding": "This file's text encoding is invalid or unsupported. Save the spreadsheet as UTF-8 CSV and try again.",
     "emptyFile": "The CSV file appears to be empty",
     "templateDownloaded": "Template downloaded",
     "errorReportDownloaded": "Error report downloaded",

@@ -24,7 +24,7 @@ import type { Category, Brand, Unit, Product } from '@/types';
 import { useTranslation } from '@/hooks/use-translation';
 import { useConfirmation } from '@/hooks/use-confirmation';
 import {
-  parseCSV, autoMapColumns, applyMapping, validateRows,
+  decodeCSVBuffer, CsvEncodingError, parseCSV, autoMapColumns, applyMapping, validateRows,
   generateTemplateCSV, generateErrorReportCSV, downloadFile,
   buildRefMaps, rowToProductData,
   FIELD_DEFINITIONS, type ColumnMapping, type ParsedRow,
@@ -101,7 +101,7 @@ export function ImportCSVDialog({
     onOpenChange(open);
   };
 
-  const handleFileSelect = (file: File) => {
+  const handleFileSelect = async (file: File) => {
     if (!file.name.toLowerCase().endsWith('.csv')) {
       toast.error(t('csvImport.selectCsv'));
       return;
@@ -111,9 +111,8 @@ export function ImportCSVDialog({
       return;
     }
     setFileName(file.name);
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = e.target?.result as string;
+    try {
+      const text = decodeCSVBuffer(await file.arrayBuffer());
       if (!text) { toast.error(t('csvImport.readFailed')); return; }
       const { headers: hdrs, rows } = parseCSV(text);
       if (hdrs.length === 0) { toast.error(t('csvImport.emptyFile')); return; }
@@ -136,8 +135,14 @@ export function ImportCSVDialog({
       } else {
         setStep('preview');
       }
-    };
-    reader.readAsText(file, 'UTF-8');
+    } catch (error) {
+      if (error instanceof CsvEncodingError) {
+        toast.error(t('csvImport.invalidEncoding'));
+      } else {
+        console.error('[Product import] Could not read CSV:', error);
+        toast.error(t('csvImport.readFailed'));
+      }
+    }
   };
 
   const revalidate = (newMapping: ColumnMapping, mode: ImportMode) => {
@@ -397,7 +402,11 @@ export function ImportCSVDialog({
                     type="file"
                     accept=".csv"
                     className="hidden"
-                    onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelect(f); }}
+                    onChange={(e) => {
+                      const file = e.currentTarget.files?.[0];
+                      e.currentTarget.value = '';
+                      if (file) void handleFileSelect(file);
+                    }}
                   />
                 </div>
               </div>
