@@ -23,6 +23,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
+import { isValidProductName } from '@/lib/product-name';
 import type { Product, Category, Brand, Unit, ProductVariant } from '@/types';
 import { toast } from 'sonner';
 import { Barcode } from '@/components/barcode';
@@ -77,6 +78,7 @@ export default function ProductsPage() {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [stockFilter, setStockFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
+  const [showInvalidNames, setShowInvalidNames] = useState(false);
 
   // Pagination
   const [pageSize, setPageSize] = useState(10);
@@ -136,6 +138,7 @@ export default function ProductsPage() {
   const filtered = useMemo(() => {
     return products.filter((p) => {
       if (p.is_deleted) return false;
+      if (showInvalidNames && isValidProductName(p.name)) return false;
       const q = debouncedSearch.toLowerCase();
       const matchesSearch = !q ||
         p.name.toLowerCase().includes(q) ||
@@ -153,15 +156,17 @@ export default function ProductsPage() {
       else if (stockFilter === 'out') matchesStock = p.stock <= 0;
       return matchesSearch && matchesBrand && matchesCategory && matchesType && matchesStock;
     });
-  }, [products, debouncedSearch, brandFilter, categoryFilter, stockFilter, typeFilter]);
+  }, [products, debouncedSearch, brandFilter, categoryFilter, stockFilter, typeFilter, showInvalidNames]);
 
+  const invalidNameCount = products.filter((p) => !p.is_deleted && !isValidProductName(p.name)).length;
   const totalPages = Math.ceil(filtered.length / pageSize);
   const pageData = filtered.slice(page * pageSize, (page + 1) * pageSize);
 
-  useEffect(() => { setPage(0); }, [search, brandFilter, categoryFilter, stockFilter, typeFilter, pageSize]);
+  useEffect(() => { setPage(0); }, [search, brandFilter, categoryFilter, stockFilter, typeFilter, pageSize, showInvalidNames]);
 
   const resetFilters = () => {
     setSearch(''); setBrandFilter('all'); setCategoryFilter('all'); setStockFilter('all'); setTypeFilter('all');
+    setShowInvalidNames(false);
   };
 
   const handleImageUpload = async (file: File) => {
@@ -246,6 +251,7 @@ export default function ProductsPage() {
 
   const validateForm = (): string | null => {
     if (!formData.name.trim()) return t('products.nameRequired');
+    if (!isValidProductName(formData.name)) return t('products.nameInvalid');
     if (formData.selling_price && Number(formData.selling_price) < 0) return t('products.sellingPriceInvalid');
     if (formData.cost_price && Number(formData.cost_price) < 0) return t('products.costPriceNegative');
     if (Number(formData.stock) < 0) return t('products.stockNegative');
@@ -556,8 +562,23 @@ export default function ProductsPage() {
               <option value="simple">{t('products.simpleProduct')}</option>
               <option value="variant">{t('products.variantProduct')}</option>
             </select>
+            {(invalidNameCount > 0 || showInvalidNames) && (
+              <Button
+                variant={showInvalidNames ? 'default' : 'outline'}
+                size="sm"
+                aria-pressed={showInvalidNames}
+                onClick={() => setShowInvalidNames((showing) => !showing)}
+              >
+                {showInvalidNames
+                  ? t('products.showAllProducts')
+                  : t('products.reviewInvalidNames', { count: invalidNameCount })}
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={resetFilters}><RotateCcw className="w-4 h-4 mr-2" /> {t('common.reset')}</Button>
           </div>
+          {showInvalidNames && (
+            <p className="text-sm text-amber-700 dark:text-amber-400">{t('products.invalidNameReviewHelp')}</p>
+          )}
 
           {/* Bulk actions */}
           {selectedIds.size > 0 && (
@@ -634,6 +655,11 @@ export default function ProductsPage() {
                             <button className="hover:text-indigo-600 transition-colors text-left" onClick={() => setViewProduct(product)}>
                               {product.name}
                             </button>
+                            {!isValidProductName(product.name) && (
+                              <Badge variant="outline" className="border-amber-500 text-amber-700 dark:text-amber-400">
+                                {t('products.invalidNameBadge')}
+                              </Badge>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground font-mono">{product.product_code || product.sku || '-'}</TableCell>

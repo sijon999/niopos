@@ -222,6 +222,11 @@
     "createSuccess": "Product created successfully",
     "updateSuccess": "Product updated successfully",
     "nameRequired": "Product name is required",
+    "nameInvalid": "Product name cannot consist only of question marks or placeholder characters",
+    "reviewInvalidNames": "Review invalid names ({count})",
+    "showAllProducts": "Show all products",
+    "invalidNameBadge": "Invalid name",
+    "invalidNameReviewHelp": "Review each record and correct its name or archive it. Archiving does not remove sales or purchase history.",
     "sellingPriceRequired": "Selling price is required",
     "barcodeExists": "Barcode already in use",
     "codeExists": "Product code already in use",
@@ -283,7 +288,7 @@
   },
   "csvImport": {
     "title": "Import Products from CSV",
-    "instructions": "Upload a CSV file containing your product information. Make sure the column names match the template.",
+    "instructions": "Upload a UTF-8 encoded CSV file containing your product information. Bangla and English names are supported; make sure the column names match the template.",
     "selectCsv": "Please select a CSV file",
     "fileTooLarge": "File too large (maximum 10 MB)",
     "readFailed": "Could not read the file",
@@ -334,6 +339,7 @@
     },
     "errors": {
       "nameRequired": "Product name is required",
+      "nameInvalid": "Product name cannot contain only question marks or placeholder characters",
       "sellingPriceRequired": "Selling price is required",
       "sellingPriceInvalid": "Invalid selling price",
       "sellingPriceNegative": "Selling price cannot be negative",

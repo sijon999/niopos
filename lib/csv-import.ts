@@ -1,4 +1,5 @@
 import type { Category, Brand, Unit } from '@/types';
+import { isValidProductName } from '@/lib/product-name';
 
 export type ImportField =
   | 'name' | 'product_code' | 'barcode' | 'sku' | 'product_type'
@@ -185,6 +186,9 @@ export function validateRows(
 
     if (!m.name || !m.name.trim()) {
       errors.push({ row: row.rowIndex, field: 'name', message: 'csvImport.errors.nameRequired', productCode: m.product_code });
+      hasError = true;
+    } else if (!isValidProductName(m.name)) {
+      errors.push({ row: row.rowIndex, field: 'name', message: 'csvImport.errors.nameInvalid', productName: m.name, productCode: m.product_code });
       hasError = true;
     }
 

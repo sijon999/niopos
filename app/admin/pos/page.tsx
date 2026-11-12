@@ -53,6 +53,7 @@ import {
 } from '@/components/ui/dialog';
 import { usePOSStore, calcLineDiscount, calcLineTotal } from '@/store/pos-store';
 import { supabase } from '@/lib/supabase';
+import { isValidProductName } from '@/lib/product-name';
 import type { Product, Category, Customer, Settings } from '@/types';
 import { ThermalReceipt } from '@/components/thermal-receipt';
 import { fetchEligibleOffers, calculateOfferDiscount, formatOfferLabel, checkMinimumPurchase, type EligibleOffer } from '@/lib/discount';
@@ -244,6 +245,7 @@ export default function POSPage() {
   });
 
   const filteredProducts = products.filter((p) => {
+    if (!isValidProductName(p.name)) return false;
     const matchesSearch =
       !searchQuery ||
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -257,7 +259,7 @@ export default function POSPage() {
   const handleBarcodeScan = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Enter' && barcodeInput) {
-        const product = products.find((p) => p.barcode === barcodeInput);
+        const product = products.find((p) => isValidProductName(p.name) && p.barcode === barcodeInput);
         if (product) {
           addToCart(product);
           toast.success(t('pos.productAdded', { name: product.name }));
