@@ -266,8 +266,13 @@ export type StockMovement = {
   quantity: number;
   reference: string | null;
   note: string | null;
+  previous_stock: number | null;
+  new_stock: number | null;
+  reason: string | null;
+  purchase_price: number | null;
+  performed_by: string | null;
   created_at: string;
-  products?: Product | null;
+  products?: Pick<Product, 'id' | 'name'> | null;
 };
 
 export type Settings = {
@@ -345,6 +350,7 @@ export type PurchaseReturn = {
 export type PurchaseReturnItem = {
   id: string;
   return_id: string;
+  purchase_item_id: string | null;
   product_id: string | null;
   product_name: string;
   quantity: number;

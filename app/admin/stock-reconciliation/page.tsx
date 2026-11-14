@@ -56,6 +56,12 @@ import { useConfirmation } from '@/hooks/use-confirmation';
 
 type ReconciliationStatus = 'NOT_CHECKED' | 'CHECKED' | 'DIFFERENCE_FOUND';
 
+const decimalQuantityUnits = /^(kg|g|gram|grams|liter|litre|l|ml|meter|metre|m|cm|mm)$/i;
+
+function unitAllowsDecimalQuantity(unit: string | null | undefined): boolean {
+  return decimalQuantityUnits.test((unit || '').trim());
+}
+
 type ProductWithRecon = Product & {
   latest_reconciliation?: StockReconciliation | null;
 };
@@ -299,8 +305,13 @@ export default function StockReconciliationPage() {
 
   const handleSaveVerify = async () => {
     if (!verifyProduct) return;
-    const physical = parseFloat(physicalQty);
-    if (isNaN(physical) || physical < 0) {
+    const physical = Number(physicalQty);
+    if (
+      physicalQty.trim() === ''
+      || !Number.isFinite(physical)
+      || physical < 0
+      || (!unitAllowsDecimalQuantity(verifyProduct.unit) && !Number.isInteger(physical))
+    ) {
       toast.error(t('reconciliation.verifyError'));
       return;
     }
@@ -381,8 +392,15 @@ export default function StockReconciliationPage() {
       for (const p of selectedProducts) {
         const qtyStr = bulkQuantities[p.id];
         if (!qtyStr) continue;
-        const physical = parseFloat(qtyStr);
-        if (isNaN(physical) || physical < 0) continue;
+        const physical = Number(qtyStr);
+        if (
+          !Number.isFinite(physical)
+          || physical < 0
+          || (!unitAllowsDecimalQuantity(p.unit) && !Number.isInteger(physical))
+        ) {
+          toast.error(t('reconciliation.verifyError'));
+          return;
+        }
 
         const systemQty = Number(p.stock);
         const diff = physical - systemQty;
@@ -838,6 +856,7 @@ export default function StockReconciliationPage() {
                   <Input
                     type="number"
                     min="0"
+                    step="any"
                     placeholder={String(p.stock)}
                     value={bulkQuantities[p.id] || ''}
                     onChange={(e) => setBulkQuantities({ ...bulkQuantities, [p.id]: e.target.value })}

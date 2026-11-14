@@ -46,6 +46,11 @@ import { useTranslation } from '@/hooks/use-translation';
 
 const fmt = (n: number) => `৳${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+function formatStockValue(value: number, currencySymbol: string, locale: string) {
+  const numberLocale = locale === 'bn' ? 'bn-BD' : 'en-US';
+  return `${currencySymbol}${value.toLocaleString(numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 function sumRows<T>(
   result: { data: T[] | null; error: { message: string } | null },
   getValue: (row: T) => unknown
@@ -115,9 +120,9 @@ export default function DashboardPage() {
         purchasesRes, duePurchasesRes,
         saleReturnsRes, purchaseReturnsRes,
         todayCollectionsRes, todayPaymentsRes,
-        productsRes, customersRes, suppliersRes,
+        customersRes, suppliersRes,
         invoicesRes, customerDueRes,
-        stockRes,
+        inventoryTotalsRes, settingsRes,
         recentSalesRes,
         todayProfitRes,
       ] = await Promise.all([
@@ -139,12 +144,12 @@ export default function DashboardPage() {
         supabase.from('purchase_returns').select('total').gte('return_date', todayStart).lt('return_date', tomorrowStart),
         supabase.from('customer_payments').select('amount').gte('payment_date', todayStart).lt('payment_date', tomorrowStart),
         supabase.from('supplier_payments').select('amount').gte('payment_date', todayStart).lt('payment_date', tomorrowStart),
-        supabase.from('products').select('id, cost_price, stock', { count: 'exact', head: false }),
         supabase.from('customers').select('id', { count: 'exact', head: true }),
         supabase.from('suppliers').select('id', { count: 'exact', head: true }),
         supabase.from('sales').select('id', { count: 'exact', head: true }),
         supabase.from('customers').select('total_due'),
-        supabase.from('products').select('stock, cost_price, selling_price'),
+        supabase.rpc('get_dashboard_inventory_totals'),
+        supabase.from('settings').select('currency, currency_symbol').maybeSingle(),
         supabase.from('sales').select('*, customers(name), employees(name), sale_items(*)').order('sale_date', { ascending: false }).limit(5),
         supabase.rpc('get_sales_profit_summary', {
           p_date_from: todayStart,
@@ -172,12 +177,12 @@ export default function DashboardPage() {
         getMetricError('sales returns', saleReturnsRes.error),
         getMetricError('purchase returns', purchaseReturnsRes.error),
         getMetricError('customer payments', todayPaymentsRes.error),
-        getMetricError('products', productsRes.error),
         getMetricError('customers', customersRes.error),
         getMetricError('suppliers', suppliersRes.error),
         getMetricError('invoices', invoicesRes.error),
         getMetricError('customer balances', customerDueRes.error),
-        getMetricError('stock', stockRes.error),
+        getMetricError('inventory totals', inventoryTotalsRes.error),
+        getMetricError('store currency', settingsRes.error),
         getMetricError('recent sales', recentSalesRes.error),
         getMetricError('sales profit', todayProfitRes.error),
       ].filter((entry): entry is { name: string; message: string } => entry !== null);
@@ -202,11 +207,14 @@ export default function DashboardPage() {
       const purchaseReturns = sumRows(purchaseReturnsRes, (row) => row.total);
       const todayCollections = income;
       const todayPayments = sumRows(todayPaymentsRes, (payment) => payment.amount);
-      const stockCount = sumRows(stockRes, (product) => product.stock);
-      const stockValue = stockRes.error ? null : (stockRes.data || []).reduce(
-        (sum, product) => sum + Number(product.stock || 0) * Number(product.cost_price || 0),
-        0
-      );
+      const stockCount = inventoryTotalsRes.error
+        ? null
+        : Number(inventoryTotalsRes.data?.[0]?.stock_quantity ?? 0);
+      const stockValue = inventoryTotalsRes.error
+        ? null
+        : Number(inventoryTotalsRes.data?.[0]?.stock_value ?? 0);
+      const currencySymbol = settingsRes.data?.currency_symbol?.trim()
+        || (settingsRes.data?.currency === 'BDT' ? '৳' : settingsRes.data?.currency || '৳');
       const totalCustomerDue = sumRows(customerDueRes, (customer) => customer.total_due);
       const netProfit = todayProfitRes.error
         ? null
@@ -229,7 +237,7 @@ export default function DashboardPage() {
         { labelKey: 'dashboard.todayCollections', value: todayCollections === null ? '—' : fmt(todayCollections), icon: Wallet, color: 'from-green-500 to-emerald-600' },
         { labelKey: 'dashboard.todayPayments', value: todayPayments === null ? '—' : fmt(todayPayments), icon: Banknote, color: 'from-cyan-500 to-blue-600' },
         { labelKey: 'dashboard.stockQuantity', value: stockCount === null ? '—' : stockCount.toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US'), icon: Package, color: 'from-amber-600 to-yellow-600' },
-        { labelKey: 'dashboard.stockValue', value: stockValue === null ? '—' : fmt(stockValue), icon: DollarSign, color: 'from-lime-500 to-green-600' },
+        { labelKey: 'dashboard.stockValue', value: stockValue === null ? '—' : formatStockValue(stockValue, currencySymbol, locale), icon: DollarSign, color: 'from-lime-500 to-green-600' },
         { labelKey: 'dashboard.totalCustomers', value: customersRes.error ? '—' : (customersRes.count || 0).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US'), icon: Users, color: 'from-teal-600 to-cyan-700' },
         { labelKey: 'dashboard.totalSuppliers', value: suppliersRes.error ? '—' : (suppliersRes.count || 0).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US'), icon: Truck, color: 'from-indigo-500 to-blue-600' },
         { labelKey: 'dashboard.totalInvoices', value: invoicesRes.error ? '—' : (invoicesRes.count || 0).toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-US'), icon: FileText, color: 'from-slate-600 to-gray-700' },
@@ -360,6 +368,9 @@ export default function DashboardPage() {
       'sale_returns',
       'purchase_returns',
       'products',
+      'stock_reconciliations',
+      'stock_adjustments',
+      'settings',
       'customers',
       'suppliers',
       'categories',

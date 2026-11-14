@@ -208,11 +208,47 @@ export function ImportCSVDialog({
     let skipped = 0;
     let failed = 0;
     const failedRows: Array<{ row: number; name: string; code: string; error: string }> = [];
+    const updateExistingProduct = async (
+      row: ParsedRow,
+      existing: Pick<Product, 'id' | 'stock' | 'cost_price' | 'unit'>
+    ) => {
+      const data = rowToProductData(row, refs);
+      const requestedStock = Number(data.stock || 0);
+      const stockDifference = requestedStock - Number(existing.stock || 0);
+
+      if (stockDifference !== 0) {
+        const { error } = await supabase.rpc('adjust_inventory_stock', {
+          p_product_id: existing.id,
+          p_direction: stockDifference > 0 ? 'in' : 'out',
+          p_quantity: Math.abs(stockDifference),
+          p_reason: 'Manual Adjustment',
+          p_note: `CSV import stock update (row ${row.rowIndex})`,
+          p_purchase_price: stockDifference > 0 && Number(data.cost_price) !== Number(existing.cost_price)
+            ? Number(data.cost_price)
+            : null,
+        });
+        if (error) throw error;
+      }
+
+      const {
+        stock: ignoredStock,
+        product_code: ignoredProductCode,
+        sku: ignoredSku,
+        barcode: ignoredBarcode,
+        ...updateData
+      } = data;
+      void ignoredStock;
+      void ignoredProductCode;
+      void ignoredSku;
+      void ignoredBarcode;
+      const { error } = await supabase.from('products').update(updateData).eq('id', existing.id);
+      if (error) throw error;
+    };
 
     for (let i = 0; i < validRows.length; i += batchSize) {
       const batch = validRows.slice(i, i + batchSize);
       const toInsert: Record<string, any>[] = [];
-      const toUpdate: Array<{ row: ParsedRow; existingId: string }> = [];
+      const toUpdate: Array<{ row: ParsedRow; existing: Product }> = [];
 
       for (const row of batch) {
         const data = rowToProductData(row, refs);
@@ -227,7 +263,7 @@ export function ImportCSVDialog({
               return false;
             });
             if (existing) {
-              toUpdate.push({ row, existingId: existing.id });
+              toUpdate.push({ row, existing });
               continue;
             }
           }
@@ -242,6 +278,17 @@ export function ImportCSVDialog({
         if (error) {
           for (const item of toInsert) {
             const { rowRef, ...productData } = item;
+            const row = batch.find((batchRow) => batchRow.rowIndex === rowRef);
+            if (!row) {
+              failed++;
+              failedRows.push({
+                row: rowRef,
+                name: productData.name,
+                code: productData.product_code || '',
+                error: 'Could not match the failed import row to its CSV data',
+              });
+              continue;
+            }
             const { data: insertedRow, error: rowError } = await supabase
               .from('products')
               .insert(productData)
@@ -264,7 +311,7 @@ export function ImportCSVDialog({
                 for (const [field, value] of matchFields) {
                   const { data: existing, error: lookupError } = await supabase
                     .from('products')
-                    .select('id')
+                    .select('id, stock, cost_price, unit')
                     .eq(field, value)
                     .maybeSingle();
 
@@ -276,13 +323,17 @@ export function ImportCSVDialog({
                   }
                   if (!existing) continue;
 
-                  const { product_code, sku, barcode, ...updateData } = productData;
-                  const { error: updateError } = await supabase.from('products').update(updateData).eq('id', existing.id);
-                  if (updateError) {
-                    failed++;
-                    failedRows.push({ row: rowRef, name: productData.name, code: product_code || '', error: updateError.message });
-                  } else {
+                  try {
+                    await updateExistingProduct(row, existing);
                     updated++;
+                  } catch (updateError) {
+                    failed++;
+                    failedRows.push({
+                      row: rowRef,
+                      name: productData.name,
+                      code: productData.product_code || '',
+                      error: updateError instanceof Error ? updateError.message : String(updateError),
+                    });
                   }
                   matchedExisting = true;
                   break;
@@ -301,29 +352,21 @@ export function ImportCSVDialog({
         }
         imported += insertedProducts.length;
 
-        const movements = insertedProducts
-            .filter((p: any) => Number(p.stock) > 0)
-            .map((p: any) => ({
-              product_id: p.id,
-              type: 'opening',
-              quantity: Number(p.stock),
-              reference: 'CSV Import',
-              note: 'Bulk import opening stock',
-            }));
-        if (movements.length > 0) {
-          await supabase.from('stock_movements').insert(movements);
-        }
       }
 
-      for (const { row, existingId } of toUpdate) {
-        const data = rowToProductData(row, refs);
-        const { product_code, sku, barcode, ...updateData } = data;
-        const { error } = await supabase.from('products').update(updateData).eq('id', existingId);
-        if (error) {
-          failed++;
-          failedRows.push({ row: row.rowIndex, name: data.name, code: product_code || '', error: error.message });
-        } else {
+      for (const { row, existing } of toUpdate) {
+        try {
+          await updateExistingProduct(row, existing);
           updated++;
+        } catch (error) {
+          failed++;
+          const data = rowToProductData(row, refs);
+          failedRows.push({
+            row: row.rowIndex,
+            name: data.name,
+            code: data.product_code || '',
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
       }
 

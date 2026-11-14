@@ -311,16 +311,6 @@ export default function ProductsPage() {
           const { data: newProduct, error: insertError } = await supabase.from('products').insert(data).select().single();
           if (insertError) throw insertError;
           productId = newProduct.id;
-          if (Number(formData.stock) > 0) {
-            const { error: movementError } = await supabase.from('stock_movements').insert({
-              product_id: productId,
-              type: 'opening',
-              quantity: Number(formData.stock),
-              reference: 'Opening Stock',
-              note: 'Initial stock',
-            });
-            if (movementError) throw movementError;
-          }
         }
 
         if (productId && formData.product_type === 'variant') {

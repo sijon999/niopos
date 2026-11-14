@@ -92,8 +92,14 @@ export default function PurchasesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [detailPurchase, setDetailPurchase] = useState<Purchase | null>(null);
   const [detailItems, setDetailItems] = useState<PurchaseItem[]>([]);
+  const [returnedQuantities, setReturnedQuantities] = useState<Record<string, number>>({});
   const [detailLoading, setDetailLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [returnDialogOpen, setReturnDialogOpen] = useState(false);
+  const [returnQuantities, setReturnQuantities] = useState<Record<string, string>>({});
+  const [returnReason, setReturnReason] = useState('');
+  const [returnNotes, setReturnNotes] = useState('');
+  const [savingReturn, setSavingReturn] = useState(false);
 
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -234,12 +240,70 @@ export default function PurchasesPage() {
   const viewDetail = async (purchase: Purchase) => {
     setDetailPurchase(purchase);
     setDetailLoading(true);
-    const { data } = await supabase
+    const [itemsResult, returnsResult] = await Promise.all([
+      supabase
       .from('purchase_items')
-      .select('*, products(name, sku)')
-      .eq('purchase_id', purchase.id);
-    setDetailItems(data || []);
+      .select('*, products(name, sku, stock, unit)')
+      .eq('purchase_id', purchase.id),
+      supabase
+        .from('purchase_return_items')
+        .select('purchase_item_id, quantity, purchase_returns!inner(original_purchase_id, status)')
+        .eq('purchase_returns.original_purchase_id', purchase.id)
+        .eq('purchase_returns.status', 'completed'),
+    ]);
+    if (itemsResult.error || returnsResult.error) {
+      const error = itemsResult.error || returnsResult.error;
+      console.error('[Purchases] Failed to load purchase detail:', error);
+      toast.error(error?.message || 'Unable to load purchase details');
+      setDetailLoading(false);
+      return;
+    }
+    setDetailItems((itemsResult.data || []) as PurchaseItem[]);
+    const returned = (returnsResult.data || []).reduce<Record<string, number>>((totals, item) => {
+      if (item.purchase_item_id) {
+        totals[item.purchase_item_id] = (totals[item.purchase_item_id] || 0) + Number(item.quantity || 0);
+      }
+      return totals;
+    }, {});
+    setReturnedQuantities(returned);
     setDetailLoading(false);
+  };
+
+  const handlePurchaseReturn = async () => {
+    if (!detailPurchase || !returnReason.trim()) {
+      toast.error('Return reason is required');
+      return;
+    }
+    const lines = detailItems
+      .map((item) => ({ purchase_item_id: item.id, quantity: Number(returnQuantities[item.id] || 0) }))
+      .filter((line) => Number.isFinite(line.quantity) && line.quantity > 0);
+    if (lines.length === 0) {
+      toast.error('Enter a return quantity for at least one item');
+      return;
+    }
+
+    setSavingReturn(true);
+    try {
+      const { error } = await supabase.rpc('complete_purchase_return', {
+        p_purchase_id: detailPurchase.id,
+        p_lines: lines,
+        p_reason: returnReason.trim(),
+        p_notes: returnNotes.trim() || null,
+      });
+      if (error) throw error;
+
+      toast.success('Purchase return completed and stock updated');
+      setReturnDialogOpen(false);
+      setReturnQuantities({});
+      setReturnReason('');
+      setReturnNotes('');
+      await Promise.all([viewDetail(detailPurchase), loadPurchases()]);
+    } catch (error) {
+      console.error('[Purchases] Return failed:', error);
+      toast.error(error instanceof Error ? error.message : 'Unable to complete purchase return');
+    } finally {
+      setSavingReturn(false);
+    }
   };
 
   const handleCancel = async (purchase: Purchase) => {
@@ -323,7 +387,7 @@ export default function PurchasesPage() {
             <div className="p-8 text-center text-muted-foreground">Loading items...</div>
           ) : (
             <Table>
-              <TableHeader><TableRow><TableHead>Product</TableHead><TableHead>Qty</TableHead><TableHead>Cost Price</TableHead><TableHead>Total</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>Product</TableHead><TableHead>Qty</TableHead><TableHead>Cost Price</TableHead><TableHead>Total</TableHead></TableRow></TableHeader>
               <TableBody>
                 {detailItems.map((item) => (
                   <TableRow key={item.id}>
@@ -341,11 +405,76 @@ export default function PurchasesPage() {
 
         {detailPurchase.status !== 'cancelled' && (
           <div className="flex gap-3">
+            {detailPurchase.status === 'received' && (
+              <Button variant="outline" onClick={() => {
+                setReturnQuantities({});
+                setReturnReason('');
+                setReturnNotes('');
+                setReturnDialogOpen(true);
+              }}>
+                Return Items
+              </Button>
+            )}
             <Button variant="outline" className="text-rose-600 hover:text-rose-700" onClick={() => handleCancel(detailPurchase)} disabled={cancellingId === detailPurchase.id}>
               <Ban className="w-4 h-4 mr-2" /> {cancellingId === detailPurchase.id ? 'Cancelling...' : 'Cancel Purchase & Reverse Stock'}
             </Button>
           </div>
         )}
+        <Dialog open={returnDialogOpen} onOpenChange={setReturnDialogOpen}>
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader><DialogTitle>Return Purchase Items</DialogTitle></DialogHeader>
+            <div className="space-y-4">
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow><TableHead>Product</TableHead><TableHead>Purchased</TableHead><TableHead>Already Returned</TableHead><TableHead>Available Stock</TableHead><TableHead>Return Qty</TableHead></TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {detailItems.map((item) => {
+                      const remainingPurchaseQty = Math.max(0, Number(item.quantity) - Number(returnedQuantities[item.id] || 0));
+                      const currentStock = Number(item.products?.stock || 0);
+                      const maxReturn = Math.min(remainingPurchaseQty, currentStock);
+                      return (
+                        <TableRow key={item.id}>
+                          <TableCell>{item.product_name}</TableCell>
+                          <TableCell>{Number(item.quantity)}</TableCell>
+                          <TableCell>{Number(returnedQuantities[item.id] || 0)}</TableCell>
+                          <TableCell>{currentStock}</TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              min="0"
+                              max={maxReturn}
+                              step={unitAllowsDecimalQuantity(item.products?.unit || '') ? 'any' : '1'}
+                              value={returnQuantities[item.id] || ''}
+                              disabled={!item.product_id || maxReturn <= 0}
+                              onChange={(event) => setReturnQuantities((current) => ({ ...current, [item.id]: event.target.value }))}
+                              className="w-28"
+                            />
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="space-y-2">
+                <Label>Reason</Label>
+                <Input value={returnReason} onChange={(event) => setReturnReason(event.target.value)} maxLength={200} placeholder="Supplier return reason" />
+              </div>
+              <div className="space-y-2">
+                <Label>Notes</Label>
+                <Input value={returnNotes} onChange={(event) => setReturnNotes(event.target.value)} maxLength={1000} placeholder="Optional notes" />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setReturnDialogOpen(false)}>Cancel</Button>
+              <Button onClick={handlePurchaseReturn} disabled={savingReturn || !returnReason.trim()}>
+                {savingReturn ? 'Processing...' : 'Complete Return'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
         {confirmationDialog}
       </div>
     );
