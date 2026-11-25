@@ -46,6 +46,7 @@ const routePermission = (pathname: string): string | null => {
     ['/admin/pos', 'pos'],
     ['/admin/sales/return', 'sale_returns'],
     ['/admin/sales/returns', 'sale_returns'],
+    ['/admin/purchases/returns', 'purchase_returns'],
     ['/admin/products', 'products'],
     ['/admin/categories', 'products'],
     ['/admin/brands', 'products'],
@@ -250,7 +251,10 @@ export default function AdminLayout({
         { href: '/admin/discount-offers', labelKey: 'navigation.discountOffers', icon: Gift },
         { href: '/admin/suppliers', labelKey: 'navigation.suppliers', icon: Truck },
         { href: '/admin/employees', labelKey: 'navigation.employees', icon: UserCog },
-        { href: '/admin/purchases', labelKey: 'navigation.purchases', icon: Receipt },
+        { href: '/admin/purchases', labelKey: 'navigation.purchases', icon: Receipt, children: [
+          { href: '/admin/purchases', labelKey: 'navigation.purchases' },
+          { href: '/admin/purchases/returns', labelKey: 'navigation.purchaseReturns' },
+        ] },
         { href: '/admin/expenses', labelKey: 'navigation.expenses', icon: CreditCard },
         { href: '/admin/settings', labelKey: 'navigation.settings', icon: Settings },
       ];

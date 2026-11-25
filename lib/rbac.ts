@@ -96,7 +96,7 @@ export const permissionTemplates: Record<string, string[]> = {
     'sales.view', 'sales.export', 'sales.print',
     'purchases.view', 'purchases.export',
     'purchase_returns.view',
-    'expenses.view', 'expenses.create', 'expenses.edit', 'expenses.export',
+    'expenses.view', 'expenses.create', 'expenses.edit', 'expenses.export', 'expenses.print',
     'reports.view', 'reports.export',
     'actions.view_purchase_price', 'actions.view_profit',
     'actions.view_stock_value',

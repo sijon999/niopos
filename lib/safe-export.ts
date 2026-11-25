@@ -1,4 +1,4 @@
-const FORMULA_PREFIX = /^[\s]*[=+\-@]/u;
+const FORMULA_PREFIX = /^[\s]*[=+\-@]/;
 
 export function escapeHtml(value: unknown): string {
   return String(value ?? '').replace(/[&<>"']/g, (character) => {

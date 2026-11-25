@@ -420,6 +420,38 @@ export default function PurchaseExpenseReportPage() {
     }));
   };
 
+  const setDraftPayment = (payment: string, type: 'purchase' | 'expense'): void => {
+    setDraft((current) => ({
+      ...current,
+      payment,
+      ...(payment === 'all' ? {} : type === 'expense'
+        ? {
+            type: 'expense',
+            supplier: 'all',
+            productIds: [],
+            productCategory: 'all',
+            brand: 'all',
+            status: 'all',
+          }
+        : { type: 'purchase', expenseCategory: 'all' }),
+    }));
+  };
+
+  const setDraftExpenseStatus = (status: string): void => {
+    setDraft((current) => ({
+      ...current,
+      status,
+      ...(status === 'all' ? {} : {
+        type: 'expense',
+        payment: 'all',
+        supplier: 'all',
+        productIds: [],
+        productCategory: 'all',
+        brand: 'all',
+      }),
+    }));
+  };
+
   const resetDraftFilters = (): void => {
     setDraft(EMPTY_FILTERS);
     setDatePreset('all');
@@ -696,8 +728,8 @@ export default function PurchaseExpenseReportPage() {
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div className="space-y-2">
                         <Label htmlFor="outflow-payment">Payment Method</Label>
-                        <select id="outflow-payment" value={draft.payment} onChange={(event) => setDraft((current) => ({ ...current, ...(event.target.value === 'all' ? {} : { type: 'purchase' as const, expenseCategory: 'all' }), payment: event.target.value }))} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
-                          <option value="all">All</option><option value="cash">Cash</option><option value="card">Card</option><option value="mobile">Mobile</option><option value="bank">Transfer</option><option value="due">Due</option>
+                        <select id="outflow-payment" value={draft.payment} onChange={(event) => setDraftPayment(event.target.value, 'purchase')} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                          <option value="all">All</option><option value="cash">Cash</option><option value="card">Card</option><option value="mobile">Mobile</option><option value="bank">Transfer</option><option value="due">Due</option><option value="other">Other</option>
                         </select>
                       </div>
                       <div className="space-y-2">
@@ -735,10 +767,15 @@ export default function PurchaseExpenseReportPage() {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="expense-payment">Payment Method</Label>
-                      <select id="expense-payment" value="all" disabled className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60">
-                        <option value="all">All</option><option value="cash">Cash</option><option value="card">Card</option><option value="mobile">Mobile</option><option value="bank">Transfer</option><option value="cash">Cash</option><option value="card">Card</option><option value="mobile">Mobile</option><option value="bank">Transfer</option>
+                      <select id="expense-payment" value={draft.payment} onChange={(event) => setDraftPayment(event.target.value, 'expense')} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                        <option value="all">All</option><option value="cash">Cash</option><option value="card">Card</option><option value="bank_transfer">Bank Transfer</option><option value="mobile_banking">Mobile Banking</option><option value="other">Other</option>
                       </select>
-                      <p className="text-xs text-muted-foreground">Payment method is not stored for expense records, so this filter applies to purchase records only.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="expense-status">Expense Status</Label>
+                      <select id="expense-status" value={draft.status} onChange={(event) => setDraftExpenseStatus(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                        <option value="all">All</option><option value="paid">Paid</option><option value="unpaid">Unpaid</option><option value="partially_paid">Partially Paid</option><option value="overdue">Overdue</option><option value="cancelled">Cancelled</option>
+                      </select>
                     </div>
                     <p className="text-xs text-muted-foreground">Added-by information is not available in the expense records.</p>
                   </>

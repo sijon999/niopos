@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import NextImage from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -120,6 +120,7 @@ export default function PurchasesPage() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const { confirmAction, dialog: confirmationDialog } = useConfirmation();
+  const returnTargetProcessed = useRef(false);
 
   const loadPurchases = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -237,7 +238,7 @@ export default function PurchasesPage() {
     loadPurchases();
   };
 
-  const viewDetail = async (purchase: Purchase) => {
+  const viewDetail = useCallback(async (purchase: Purchase): Promise<boolean> => {
     setDetailPurchase(purchase);
     setDetailLoading(true);
     const [itemsResult, returnsResult] = await Promise.all([
@@ -256,7 +257,7 @@ export default function PurchasesPage() {
       console.error('[Purchases] Failed to load purchase detail:', error);
       toast.error(error?.message || 'Unable to load purchase details');
       setDetailLoading(false);
-      return;
+      return false;
     }
     setDetailItems((itemsResult.data || []) as PurchaseItem[]);
     const returned = (returnsResult.data || []).reduce<Record<string, number>>((totals, item) => {
@@ -267,7 +268,33 @@ export default function PurchasesPage() {
     }, {});
     setReturnedQuantities(returned);
     setDetailLoading(false);
-  };
+    return true;
+  }, []);
+
+  useEffect(() => {
+    if (loading || returnTargetProcessed.current) return;
+    const purchaseId = new URLSearchParams(window.location.search).get('return');
+    if (!purchaseId) return;
+    returnTargetProcessed.current = true;
+
+    const purchase = purchases.find((item) => item.id === purchaseId);
+    if (!purchase) {
+      toast.error('Purchase invoice could not be found');
+      return;
+    }
+    if (purchase.status !== 'received') {
+      toast.error('Only received purchases can be returned');
+      return;
+    }
+
+    void (async () => {
+      if (!await viewDetail(purchase)) return;
+      setReturnQuantities({});
+      setReturnReason('');
+      setReturnNotes('');
+      setReturnDialogOpen(true);
+    })();
+  }, [loading, purchases, viewDetail]);
 
   const handlePurchaseReturn = async () => {
     if (!detailPurchase || !returnReason.trim()) {

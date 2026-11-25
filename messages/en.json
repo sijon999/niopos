@@ -91,6 +91,7 @@
     "allSales": "All Sales",
     "salesReturn": "Sales Return",
     "returnHistory": "Return History",
+    "purchaseReturns": "Purchase Return History",
     "salesReports": "Sales Reports",
     "expenses": "Expenses",
     "reports": "Reports",
@@ -706,6 +707,23 @@
       "return_invalid_timezone": "The selected time zone is invalid."
     }
   },
+  "purchaseReturnHistory": {
+    "title": "Purchase Return History",
+    "subtitle": "Returns recorded against received purchase invoices.",
+    "returnInvoice": "Return Invoice",
+    "originalInvoice": "Original Purchase",
+    "supplier": "Supplier",
+    "date": "Date",
+    "items": "Items",
+    "total": "Return Total",
+    "status": "Status",
+    "noReturns": "No purchase returns found.",
+    "loadFailed": "Could not load purchase return history",
+    "page": "Page",
+    "of": "of",
+    "previous": "Previous",
+    "next": "Next"
+  },
   "orders": {
     "title": "Orders",
     "orderId": "Order ID",
@@ -862,7 +880,7 @@
       "noDetails": "No additional supplier information is available",
       "supplierCredit": "Supplier credit",
       "noContact": "No contact information is available",
-      "balanceNote": "Outstanding balance is calculated from previous due, purchase dues, and recorded supplier payments. Purchase returns are listed separately."
+      "balanceNote": "Returns reduce the original invoice due first. Any excess return value is tracked as supplier credit; paid amounts reflect actual payments."
     }
   },
   "employees": {

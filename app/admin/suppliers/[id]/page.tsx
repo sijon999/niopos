@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Building2, CalendarDays, Mail, MapPin, Phone, Users, Wallet } from 'lucide-react';
+import { ArrowLeft, Building2, CalendarDays, Mail, MapPin, Phone, RotateCcw, Users, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -211,6 +211,17 @@ export default function SupplierProfilePage() {
     () => returns.filter((returned) => returned.status === 'completed'),
     [returns]
   );
+  const completedReturnTotals = useMemo(() => {
+    const totals = new Map<string, number>();
+    completedReturns.forEach((returned) => {
+      if (!returned.original_purchase_id) return;
+      totals.set(
+        returned.original_purchase_id,
+        (totals.get(returned.original_purchase_id) || 0) + Number(returned.total || 0)
+      );
+    });
+    return totals;
+  }, [completedReturns]);
   const productHistory = useMemo(() => {
     const products = new Map<string, {
       name: string;
@@ -244,6 +255,11 @@ export default function SupplierProfilePage() {
   const purchaseTotal = activePurchases.reduce((sum, purchase) => sum + Number(purchase.total || 0), 0);
   const purchasePaid = activePurchases.reduce((sum, purchase) => sum + Number(purchase.paid_amount || 0), 0);
   const invoiceDue = activePurchases.reduce((sum, purchase) => sum + Number(purchase.due_amount || 0), 0);
+  const returnCredit = activePurchases.reduce((sum, purchase) => {
+    const returned = completedReturnTotals.get(purchase.id) || 0;
+    const originalDue = Math.max(0, Number(purchase.total || 0) - Number(purchase.paid_amount || 0));
+    return sum + Math.max(0, returned - originalDue);
+  }, 0);
   const unallocatedPaymentTotal = payments
     .filter((payment) => !payment.purchase_id)
     .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
@@ -260,7 +276,8 @@ export default function SupplierProfilePage() {
   const otherUnallocatedPayments = payments
     .filter((payment) => !payment.purchase_id && !payment.applied_to_previous_due)
     .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-  const netBalance = purchaseDue - otherUnallocatedPayments;
+  const netBalance = purchaseDue - otherUnallocatedPayments - returnCredit;
+  const netDue = Math.max(0, purchaseDue - returnCredit);
   const currentOutstanding = Math.max(0, netBalance);
   const supplierCredit = Math.max(0, -netBalance);
   const purchaseInvoiceById = useMemo(
@@ -466,7 +483,7 @@ export default function SupplierProfilePage() {
             <Separator />
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div><p className="text-xs text-muted-foreground">{t('suppliers.previousDue')}</p><p className="font-bold">{money(Number(supplier.previous_due || 0))}</p></div>
-              <div><p className="text-xs text-muted-foreground">{t('suppliers.balance')}</p><p className="font-bold">{money(Number(supplier.balance || 0))}</p></div>
+              <div><p className="text-xs text-muted-foreground">{t('suppliers.balance')}</p><p className="font-bold">{money(netBalance)}</p></div>
             </div>
           </Card>
 
@@ -475,7 +492,7 @@ export default function SupplierProfilePage() {
               { label: t('suppliers.profile.purchaseOrders'), value: String(activePurchases.length) },
               { label: t('suppliers.totalPurchases'), value: money(purchaseTotal) },
               { label: t('suppliers.totalPaid'), value: money(totalPaid) },
-              { label: t('suppliers.totalDue'), value: money(purchaseDue) },
+              { label: t('suppliers.totalDue'), value: money(netDue) },
               { label: t('suppliers.totalReturned'), value: money(returnTotal) },
               { label: t('suppliers.profile.netPurchase'), value: money(Math.max(0, purchaseTotal - returnTotal)) },
               { label: t('suppliers.currentOutstanding'), value: money(currentOutstanding) },
@@ -498,7 +515,7 @@ export default function SupplierProfilePage() {
       {activeTab === 'purchases' && (
         <Card className="overflow-hidden">
           <div className="overflow-x-auto">
-            <Table className="min-w-[900px]">
+            <Table className="min-w-[1050px]">
               <TableHeader><TableRow>
                 <TableHead>{t('suppliers.profile.purchaseInvoice')}</TableHead>
                 <TableHead>{t('suppliers.profile.date')}</TableHead>
@@ -508,10 +525,11 @@ export default function SupplierProfilePage() {
                 <TableHead>{t('suppliers.profile.due')}</TableHead>
                 <TableHead>{t('suppliers.profile.paymentStatus')}</TableHead>
                 <TableHead>{t('suppliers.profile.status')}</TableHead>
+                <TableHead>{t('suppliers.profile.action')}</TableHead>
               </TableRow></TableHeader>
               <TableBody>
                 {purchases.length === 0 ? (
-                  <TableRow><TableCell colSpan={8} className="py-8 text-center text-muted-foreground">{t('suppliers.profile.noPurchases')}</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={9} className="py-8 text-center text-muted-foreground">{t('suppliers.profile.noPurchases')}</TableCell></TableRow>
                 ) : purchases.map((purchase) => (
                   <TableRow key={purchase.id}>
                     <TableCell className="font-medium">{purchase.po_number || '—'}</TableCell>
@@ -524,6 +542,17 @@ export default function SupplierProfilePage() {
                     <TableCell className={Number(purchase.due_amount || 0) > 0 ? 'text-amber-600' : 'text-muted-foreground'}>{money(Number(purchase.due_amount || 0))}</TableCell>
                     <TableCell><Badge variant="outline" className="capitalize">{formatPaymentStatus(purchase)}</Badge></TableCell>
                     <TableCell><Badge variant={purchase.status === 'cancelled' ? 'destructive' : 'secondary'} className="capitalize">{purchase.status}</Badge></TableCell>
+                    <TableCell>
+                      {purchase.status === 'received' && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => window.location.assign(`/admin/purchases?return=${encodeURIComponent(purchase.id)}`)}
+                        >
+                          <RotateCcw className="mr-1 h-4 w-4" />Return Products
+                        </Button>
+                      )}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
